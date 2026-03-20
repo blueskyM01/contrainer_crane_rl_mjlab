@@ -1,0 +1,60 @@
+<mujoco model="cartpole">
+  <compiler angle="radian" meshdir="meshes" autolimits="true" />
+  <option timestep="0.01" gravity="0 0 -9.81" wind="0 0 0" integrator="implicitfast"
+        density="1.225"
+        viscosity="1.8e-5" />
+
+    <visual>
+        <global realtime="1" />
+        <quality shadowsize="16384" numslices="28" offsamples="4" />
+        <headlight diffuse="1 1 1" specular="0.5 0.5 0.5" active="1" />
+        <rgba fog="1 0 0 1" haze="1 1 1 1" />
+    </visual>
+
+    <default>
+      <geom solref=".5e-4" solimp="0.9 0.99 1e-4" fluidcoef="0.5 0.25 0.5 2.0 1.0" />
+      <default class="card">
+          <geom type="mesh" mesh="card" mass="1.84e-4" fluidshape="ellipsoid" contype="0"
+              conaffinity="0" />
+      </default>
+      <default class="collision">
+          <geom type="box" mass="0" size="0.047 0.032 .00035" group="3" friction=".1" />
+      </default>
+    </default>
+
+  <asset>
+    <texture name="plane" type="2d" builtin="checker" rgb1=".1 .1 .1" rgb2=".9 .9 .9"
+            width="512" height="512" mark="cross" markrgb=".8 .8 .8" />
+    <material name="plane" reflectance="0.3" texture="plane" texrepeat="1 1" texuniform="true" />
+    <material name="box" rgba="0 0.5 0 1" emission="0" />
+
+    <mesh name="carpole - car-2_mesh" file="carpole - car-2.STL" scale="1 1 1"/>
+    <mesh name="carpole - pole-3_mesh" file="carpole - pole-3.STL" scale="1 1 1"/>
+    <mesh name="carpole - rail-2_mesh" file="carpole - rail-2.STL" scale="1 1 1"/>
+  </asset>
+
+  <worldbody>
+    <geom name="floor" pos="0 0 0" size="10 10 .1" type="plane" material="plane"
+        condim="3" />
+    <light directional="true" ambient=".3 .3 .3" pos="30 30 30" dir="0 -2 -1"
+        diffuse=".5 .5 .5" specular=".5 .5 .5" />
+
+    <body name="part_02_carpole - rail-2" pos="0 0 1" euler="0 0 0">
+      <geom name="geom_02_carpole - rail-2" type="mesh" mesh="carpole - rail-2_mesh" pos="0 0 0" mass="1.0799999517202383" rgba="0.5 0 0 1"/>
+      <body name="part_00_carpole - car-2" pos="0 0 0" euler="0 0 0">
+        <joint name="slider" type="slide" limited="true" axis="1 0 0" range="-1.8 1.8" solreflimit=".08 1" damping="5e-4" />
+        <geom name="geom_00_carpole - car-2" type="mesh" mesh="carpole - car-2_mesh" pos="0 0 0" mass="0.1" rgba="0 0 0.5 0.5"/>
+        <body name="part_01_carpole - pole-3" pos="0 0 0" euler="0 3.14159 0">
+          <joint name="hinge_1" axis="0 1 0" damping="2e-4" />
+          <geom name="geom_01_carpole - pole-3" type="mesh" mesh="carpole - pole-3_mesh" pos="0 0 0" mass="0.1" rgba="0 0.5 0 1"/>
+        </body>
+      </body>
+    </body>
+    
+    
+  </worldbody>
+
+  <actuator>
+    <motor name="slide" joint="slider" gear="20" ctrllimited="true" ctrlrange="-1 1"/>
+  </actuator>
+</mujoco>
