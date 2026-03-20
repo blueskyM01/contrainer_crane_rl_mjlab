@@ -19,7 +19,7 @@ _BALANCE_INIT = EntityCfg.InitialStateCfg(
 
 _SWINGUP_INIT = EntityCfg.InitialStateCfg(
   pos=(0.0, 0.0, 0.0),
-  joint_pos={"slider": 0.0, "hinge_1": math.pi},
+  joint_pos={"slider": 0.0, "hinge_1": 0.0},
   joint_vel={".*": 0.0},
 )
 

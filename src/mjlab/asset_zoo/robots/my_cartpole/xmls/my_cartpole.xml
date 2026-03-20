@@ -44,7 +44,7 @@
       <body name="part_00_carpole - car-2" pos="0 0 0" euler="0 0 0">
         <joint name="slider" type="slide" limited="true" axis="1 0 0" range="-1.8 1.8" solreflimit=".08 1" damping="5e-4" />
         <geom name="geom_00_carpole - car-2" type="mesh" mesh="carpole - car-2_mesh" pos="0 0 0" mass="0.1" rgba="0 0 0.5 0.5"/>
-        <body name="part_01_carpole - pole-3" pos="0 0 0" euler="0 3.14159 0">
+        <body name="part_01_carpole - pole-3" pos="0 0 0" euler="0 0 0">
           <joint name="hinge_1" axis="0 1 0" damping="2e-4" />
           <geom name="geom_01_carpole - pole-3" type="mesh" mesh="carpole - pole-3_mesh" pos="0 0 0" mass="0.1" rgba="0 0.5 0 1"/>
         </body>

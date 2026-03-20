@@ -75,10 +75,10 @@ def cartpole_smooth_reward(
   """
   asset: Entity = env.scene[cart_cfg.name]
 
-  # Pole angle cosine.
+  # Pole angle sine.
   hinge_angle = asset.data.joint_pos[:, hinge_cfg.joint_ids].squeeze(-1)
-  pole_cos = torch.cos(hinge_angle)
-  upright = (pole_cos + 1) / 2
+  pole_sin = torch.sin(hinge_angle-math.pi/2)  # Shift by 90 degrees to make upright=1.
+  upright = (pole_sin + 1) / 2
 
   # Cart position.
   cart_pos = asset.data.joint_pos[:, cart_cfg.joint_ids].squeeze(-1)
