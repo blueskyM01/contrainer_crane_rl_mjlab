@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mujoco model="inverted_pendulum">
+    <compiler angle="radian" meshdir="meshes" autolimits="true" />
+    <option timestep="0.002" gravity="0 0 -9.81" wind="0 0 0" integrator="implicitfast"
+        density="1.225"
+        viscosity="1.8e-5" />
+
+    <visual>
+        <global realtime="1" />
+        <quality shadowsize="16384" numslices="28" offsamples="4" />
+        <headlight diffuse="1 1 1" specular="0.5 0.5 0.5" active="1" />
+        <rgba fog="1 0 0 1" haze="1 1 1 1" />
+    </visual>
+
+    <asset>
+
+        <texture name="plane" type="2d" builtin="checker" rgb1=".1 .1 .1" rgb2=".9 .9 .9"
+            width="512" height="512" mark="cross" markrgb=".8 .8 .8" />
+        <material name="plane" reflectance="0.3" texture="plane" texrepeat="1 1" texuniform="true" />
+        <material name="box" rgba="0 0.5 0 1" emission="0" />
+
+        <!-- gantry -->
+        <mesh name="gantry - 8080-L1800-3_mesh" file="gantry - 8080-L1800-3.STL" scale="1 1 1"/>
+        <mesh name="gantry - 8080-L1800-1_mesh" file="gantry - 8080-L1800-1.STL" scale="1 1 1"/>
+        <mesh name="gantry - 8080-L1800-6_mesh" file="gantry - 8080-L1800-6.STL" scale="1 1 1"/>
+        <mesh name="gantry - 8080-L1800-12_mesh" file="gantry - 8080-L1800-12.STL" scale="1 1 1"/>
+        <mesh name="gantry - 8080-L1900-2_mesh" file="gantry - 8080-L1900-2.STL" scale="1 1 1"/>
+        <mesh name="gantry - 8080-L1800-9_mesh" file="gantry - 8080-L1800-9.STL" scale="1 1 1"/>
+        <mesh name="gantry - 8080-L1800-2_mesh" file="gantry - 8080-L1800-2.STL" scale="1 1 1"/>
+        <mesh name="gantry - 8080-L1900-1_mesh" file="gantry - 8080-L1900-1.STL" scale="1 1 1"/>
+        <mesh name="gantry - 8080-L1800-5_mesh" file="gantry - 8080-L1800-5.STL" scale="1 1 1"/>
+        <mesh name="gantry - 8080-L1900-3_mesh" file="gantry - 8080-L1900-3.STL" scale="1 1 1"/>
+        <mesh name="gantry - 8080-L1800-11_mesh" file="gantry - 8080-L1800-11.STL" scale="1 1 1"/>
+        <mesh name="gantry - 8080-L1900-4_mesh" file="gantry - 8080-L1900-4.STL" scale="1 1 1"/>
+        <mesh name="gantry - 8080-L1800-8_mesh" file="gantry - 8080-L1800-8.STL" scale="1 1 1"/>
+        <mesh name="gantry - 8080-L1800-4_mesh" file="gantry - 8080-L1800-4.STL" scale="1 1 1"/>
+        <mesh name="gantry - 8080-L1800-10_mesh" file="gantry - 8080-L1800-10.STL" scale="1 1 1"/>
+        <mesh name="gantry - 8080-L1800-7_mesh" file="gantry - 8080-L1800-7.STL" scale="1 1 1"/>
+
+        <!-- trolley -->
+        <mesh name="trolley - pulley-2_mesh" file="trolley - pulley-2.STL" scale="1 1 1"/>
+        <mesh name="trolley - trolley_plane-1_mesh" file="trolley - trolley_plane-1.STL" scale="1 1 1"/>
+        <mesh name="trolley - trolley_anchor_ball-2_mesh" file="trolley - trolley_anchor_ball-2.STL" scale="1 1 1"/>
+        <mesh name="trolley - pulley-6_mesh" file="trolley - pulley-6.STL" scale="1 1 1"/>
+        <mesh name="trolley - trolley_anchor_ball-3_mesh" file="trolley - trolley_anchor_ball-3.STL" scale="1 1 1"/>
+        <mesh name="trolley - trolley_anchor_ball-4_mesh" file="trolley - trolley_anchor_ball-4.STL" scale="1 1 1"/>
+        <mesh name="trolley - pulley-8_mesh" file="trolley - pulley-8.STL" scale="1 1 1"/>
+        <mesh name="trolley - pulley-4_mesh" file="trolley - pulley-4.STL" scale="1 1 1"/>
+        <mesh name="trolley - pulley-3_mesh" file="trolley - pulley-3.STL" scale="1 1 1"/>
+        <mesh name="trolley - pulley-1_mesh" file="trolley - pulley-1.STL" scale="1 1 1"/>
+        <mesh name="trolley - pulley-5_mesh" file="trolley - pulley-5.STL" scale="1 1 1"/>
+        <mesh name="trolley - pulley-7_mesh" file="trolley - pulley-7.STL" scale="1 1 1"/>
+        <mesh name="trolley - trolley_anchor_ball-1_mesh" file="trolley - trolley_anchor_ball-1.STL" scale="1 1 1"/>
+
+        <!-- ball -->
+        <mesh name="ball_mesh" file="ball.STL" scale="1 1 1"/>
+
+    </asset>
+
+    <default>
+        <geom solref=".5e-4" solimp="0.9 0.99 1e-4" fluidcoef="0.5 0.25 0.5 2.0 1.0" />
+        <default class="card">
+            <geom type="mesh" mesh="card" mass="1.84e-4" fluidshape="ellipsoid" contype="0"
+                conaffinity="0" />
+        </default>
+        <default class="collision">
+            <geom type="box" mass="0" size="0.047 0.032 .00035" group="3" friction=".1" />
+        </default>
+    </default>
+
+    <worldbody>
+        <geom name="floor" pos="0 0 0" size="10 10 .1" type="plane" material="plane"
+            condim="3" />
+        <light directional="true" ambient=".3 .3 .3" pos="30 30 30" dir="0 -2 -1"
+            diffuse=".5 .5 .5" specular=".5 .5 .5" />
+            <body name="gantry" pos="0 0 0">
+                <body name="part_00_gantry - 8080-L1800-3" pos="0 0 0" euler="0 0 0">
+                    <geom name="geom_00_gantry - 8080-L1800-3" type="mesh" mesh="gantry - 8080-L1800-3_mesh" pos="0 0 0" mass="8.20643687132272" rgba="0.0 0 0.5 1"/>
+                </body>
+                <body name="part_01_gantry - 8080-L1800-1" pos="0 0 0" euler="0 0 0">
+                    <geom name="geom_01_gantry - 8080-L1800-1" type="mesh" mesh="gantry - 8080-L1800-1_mesh" pos="0 0 0" mass="8.206436440465545" rgba="0.0 0 0.5 1"/>
+                </body>
+                <body name="part_02_gantry - 8080-L1800-6" pos="0 0 0" euler="0 0 0">
+                    <geom name="geom_02_gantry - 8080-L1800-6" type="mesh" mesh="gantry - 8080-L1800-6_mesh" pos="0 0 0" mass="8.206435252381262" rgba="0.0 0 0.5 1"/>
+                </body>
+                <body name="part_03_gantry - 8080-L1800-12" pos="0 0 0" euler="0 0 0">
+                    <geom name="geom_03_gantry - 8080-L1800-12" type="mesh" mesh="gantry - 8080-L1800-12_mesh" pos="0 0 0" mass="8.206435837031654" rgba="0.0 0 0.5 1"/>
+                </body>
+                <body name="part_04_gantry - 8080-L1900-2" pos="0 0 0" euler="0 0 0">
+                    <geom name="geom_04_gantry - 8080-L1900-2" type="mesh" mesh="gantry - 8080-L1900-2_mesh" pos="0 0 0" mass="8.662366448847159" rgba="0.0 0 0.5 1"/>
+                </body>
+                <body name="part_05_gantry - 8080-L1800-9" pos="0 0 0" euler="0 0 0">
+                    <geom name="geom_05_gantry - 8080-L1800-9" type="mesh" mesh="gantry - 8080-L1800-9_mesh" pos="0 0 0" mass="8.206435406205692" rgba="0.0 0 0.5 1"/>
+                </body>
+                <body name="part_06_gantry - 8080-L1800-2" pos="0 0 0" euler="0 0 0">
+                    <geom name="geom_06_gantry - 8080-L1800-2" type="mesh" mesh="gantry - 8080-L1800-2_mesh" pos="0 0 0" mass="8.20643687132272" rgba="0.0 0 0.5 1"/>
+                </body>
+                <body name="part_07_gantry - 8080-L1900-1" pos="0 0 0" euler="0 0 0">
+                    <geom name="geom_07_gantry - 8080-L1900-1" type="mesh" mesh="gantry - 8080-L1900-1_mesh" pos="0 0 0" mass="8.662366448847159" rgba="0.0 0 0.5 1"/>
+                </body>
+                <body name="part_08_gantry - 8080-L1800-5" pos="0 0 0" euler="0 0 0">
+                    <geom name="geom_08_gantry - 8080-L1800-5" type="mesh" mesh="gantry - 8080-L1800-5_mesh" pos="0 0 0" mass="8.206434821520842" rgba="0.0 0 0.5 1"/>
+                </body>
+                <body name="part_09_gantry - 8080-L1900-3" pos="0 0 0" euler="0 0 0">
+                    <geom name="geom_09_gantry - 8080-L1900-3" type="mesh" mesh="gantry - 8080-L1900-3_mesh" pos="0 0 0" mass="8.662366448847159" rgba="0.0 0 0.5 1"/>
+                </body>
+                <body name="part_10_gantry - 8080-L1800-11" pos="0 0 0" euler="0 0 0">
+                    <geom name="geom_10_gantry - 8080-L1800-11" type="mesh" mesh="gantry - 8080-L1800-11_mesh" pos="0 0 0" mass="8.206435406205692" rgba="0.0 0 0.5 1"/>
+                </body>
+                <body name="part_11_gantry - 8080-L1900-4" pos="0 0 0" euler="0 0 0">
+                    <geom name="geom_11_gantry - 8080-L1900-4" type="mesh" mesh="gantry - 8080-L1900-4_mesh" pos="0 0 0" mass="8.662366448847159" rgba="0.0 0 0.5 1"/>
+                </body>
+                <body name="part_12_gantry - 8080-L1800-8" pos="0 0 0" euler="0 0 0">
+                    <geom name="geom_12_gantry - 8080-L1800-8" type="mesh" mesh="gantry - 8080-L1800-8_mesh" pos="0 0 0" mass="8.206435252381262" rgba="0.0 0 0.5 1"/>
+                </body>
+                <body name="part_13_gantry - 8080-L1800-4" pos="0 0 0" euler="0 0 0">
+                    <geom name="geom_13_gantry - 8080-L1800-4" type="mesh" mesh="gantry - 8080-L1800-4_mesh" pos="0 0 0" mass="8.206436440465545" rgba="0.0 0 0.5 1"/>
+                </body>
+                <body name="part_14_gantry - 8080-L1800-10" pos="0 0 0" euler="0 0 0">
+                    <geom name="geom_14_gantry - 8080-L1800-10" type="mesh" mesh="gantry - 8080-L1800-10_mesh" pos="0 0 0" mass="8.206435837031654" rgba="0.0 0 0.5 1"/>
+                </body>
+                <body name="part_15_gantry - 8080-L1800-7" pos="0 0 0" euler="0 0 0">
+                    <geom name="geom_15_gantry - 8080-L1800-7" type="mesh" mesh="gantry - 8080-L1800-7_mesh" pos="0 0 0" mass="8.206434821520842" rgba="0.0 0 0.5 1"/>
+                </body>
+
+                <body name="trolley" pos="0 -0.7 1.9">
+                    <joint type="slide" name="trolley_joint" pos="0 0 0" axis="0 1 0" damping="0.5"
+                        frictionloss="0.01" stiffness="0" range="0 1.4" />
+                    <body name="part_00_trolley - pulley-2" pos="0 0 0" euler="0 0 0">
+                        <geom name="geom_00_trolley - pulley-2" type="mesh" mesh="trolley - pulley-2_mesh" pos="0 0 0" mass="0.027111797859617568" rgba="0.5 0 0.5 1"/>
+                    </body>
+                    <body name="part_01_trolley - trolley_plane-1" pos="0 0 0" euler="0 0 0">
+                        <geom name="geom_01_trolley - trolley_plane-1" type="mesh" mesh="trolley - trolley_plane-1_mesh" pos="0 0 0" mass="28.76275760652507" rgba="0.5 0 0.5 1"/>
+                    </body>
+                    <body name="part_02_trolley - trolley_anchor_ball-2" pos="0 0 0" euler="0 0 0">
+                        <geom name="geom_02_trolley - trolley_anchor_ball-2" type="mesh" mesh="trolley - trolley_anchor_ball-2_mesh" pos="0 0 0" mass="0.0014100498050014054" rgba="0.5 0 0.5 1"/>
+                    </body>
+                    <body name="part_03_trolley - pulley-6" pos="0 0 0" euler="0 0 0">
+                        <geom name="geom_03_trolley - pulley-6" type="mesh" mesh="trolley - pulley-6_mesh" pos="0 0 0" mass="0.02711179618761414" rgba="0.5 0 0.5 1"/>
+                    </body>
+                    <body name="part_04_trolley - trolley_anchor_ball-3" pos="0 0 0" euler="0 0 0">
+                        <geom name="geom_04_trolley - trolley_anchor_ball-3" type="mesh" mesh="trolley - trolley_anchor_ball-3_mesh" pos="0 0 0" mass="0.0014100497818406016" rgba="0.5 0 0.5 1"/>
+                    </body>
+                    <body name="part_05_trolley - trolley_anchor_ball-4" pos="0 0 0" euler="0 0 0">
+                        <geom name="geom_05_trolley - trolley_anchor_ball-4" type="mesh" mesh="trolley - trolley_anchor_ball-4_mesh" pos="0 0 0" mass="0.001410049782437572" rgba="0.5 0 0.5 1"/>
+                    </body>
+                    <body name="part_06_trolley - pulley-8" pos="0 0 0" euler="0 0 0">
+                        <geom name="geom_06_trolley - pulley-8" type="mesh" mesh="trolley - pulley-8_mesh" pos="0 0 0" mass="0.02711179284545186" rgba="0.5 0 0.5 1"/>
+                    </body>
+                    <body name="part_07_trolley - pulley-4" pos="0 0 0" euler="0 0 0">
+                        <geom name="geom_07_trolley - pulley-4" type="mesh" mesh="trolley - pulley-4_mesh" pos="0 0 0" mass="0.027111794590652136" rgba="0.5 0 0.5 1"/>
+                    </body>
+                    <body name="part_08_trolley - pulley-3" pos="0 0 0" euler="0 0 0">
+                        <geom name="geom_08_trolley - pulley-3" type="mesh" mesh="trolley - pulley-3_mesh" pos="0 0 0" mass="0.027111794594472015" rgba="0.5 0 0.5 1"/>
+                    </body>
+                    <body name="part_09_trolley - pulley-1" pos="0 0 0" euler="0 0 0">
+                        <geom name="geom_09_trolley - pulley-1" type="mesh" mesh="trolley - pulley-1_mesh" pos="0 0 0" mass="0.027111797863437353" rgba="0.5 0 0.5 1"/>
+                    </body>
+                    <body name="part_10_trolley - pulley-5" pos="0 0 0" euler="0 0 0">
+                        <geom name="geom_10_trolley - pulley-5" type="mesh" mesh="trolley - pulley-5_mesh" pos="0 0 0" mass="0.027111796191433887" rgba="0.5 0 0.5 1"/>
+                    </body>
+                    <body name="part_11_trolley - pulley-7" pos="0 0 0" euler="0 0 0">
+                        <geom name="geom_11_trolley - pulley-7" type="mesh" mesh="trolley - pulley-7_mesh" pos="0 0 0" mass="0.02711179284927182" rgba="0.5 0 0.5 1"/>
+                    </body>
+                    <body name="part_12_trolley - trolley_anchor_ball-1" pos="0 0 0" euler="0 0 0">
+                        <geom name="geom_12_trolley - trolley_anchor_ball-1" type="mesh" mesh="trolley - trolley_anchor_ball-1_mesh" pos="0 0 0" mass="0.0014100498021130147" rgba="0.5 0 0.5 1"/>
+                    </body>
+                    <site name="anchor_trolley" pos="0.61 0 0" size="0.01" rgba="0 1.0 0.8 0.5" />
+                </body>
+            </body>
+
+            <body name="ball" pos="0.61 -0.7 1">
+                <freejoint name="ball_freejoint" />
+                <geom name="geom_00_ball" type="mesh" mesh="ball_mesh" pos="0 0 0" mass="1.4100500004232115" rgba="0.5 0.5 0.5 1"/>
+                <site name="anchor_ball" pos="0 0 0" size="0.01" rgba="0 1.0 0.8 0.5" />
+            </body>
+            
+    </worldbody>
+
+    <equality>
+        <tendon tendon1="tendon1" polycoef="0 1 0 0 0" />
+    </equality>
+
+    <tendon>
+        <spatial name="tendon1" width="0.004" rgba="0.95 0.3 0.3 1">
+            <site site="anchor_trolley" />
+            <site site="anchor_ball" />
+        </spatial>
+    </tendon>
+
+
+    <actuator>
+        <position name="trolley_driver" kp="20" kv="25" joint="trolley_joint" ctrlrange="0 1.4" />
+    </actuator>
+</mujoco>

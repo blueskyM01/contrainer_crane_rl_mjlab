@@ -1,0 +1,1 @@
+from mjlab.asset_zoo.robots.qc_pendulum.qc_pendulum_constants import get_qc_pendulum_robot_cfg as get_qc_pendulum_robot_cfg

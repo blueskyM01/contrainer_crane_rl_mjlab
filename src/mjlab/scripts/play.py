@@ -39,6 +39,10 @@ class PlayConfig:
   no_terminations: bool = False
   """Disable all termination conditions (useful for viewing motions with dummy agents)."""
 
+  # Task-specific parameters
+  trolley_target: float | None = None
+  """Target position for trolley in qc_pendulum task."""
+
   # Internal flag used by demo script.
   _demo_mode: tyro.conf.Suppress[bool] = False
 
@@ -50,6 +54,13 @@ def run_play(task_id: str, cfg: PlayConfig):
 
   env_cfg = load_env_cfg(task_id, play=True)
   agent_cfg = load_rl_cfg(task_id)
+
+  # Handle task-specific parameters
+  if task_id == "Mjlab-QcPendulum" and cfg.trolley_target is not None:
+    if "trolley_target" in env_cfg.commands:
+      env_cfg.commands["trolley_target"].initial_target = cfg.trolley_target
+      env_cfg.commands["trolley_target"].mode = "fixed"  # 固定目标位置
+      print(f"[INFO]: Set trolley target to {cfg.trolley_target} (fixed mode)")
 
   DUMMY_MODE = cfg.agent in {"zero", "random"}
   TRAINED_MODE = not DUMMY_MODE
