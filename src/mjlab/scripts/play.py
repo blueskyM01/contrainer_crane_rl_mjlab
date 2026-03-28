@@ -3,11 +3,15 @@
 import os
 import sys
 from dataclasses import asdict, dataclass
+from collections import deque
 from pathlib import Path
 from typing import Literal
 
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import tyro
+from matplotlib.lines import Line2D
 
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
@@ -34,14 +38,25 @@ class PlayConfig:
   video_length: int = 200
   video_height: int | None = None
   video_width: int | None = None
+  video_output_dir: str | None = None
+  """Optional output directory for recorded videos. Defaults under run log dir or local outputs/."""
   camera: int | str | None = None
   viewer: Literal["auto", "native", "viser"] = "auto"
   no_terminations: bool = False
   """Disable all termination conditions (useful for viewing motions with dummy agents)."""
 
   # Task-specific parameters
-  trolley_target: float | None = None
-  """Target position for trolley in qc_pendulum task."""
+  trolley_target: float | str | None = None
+  """Target for qc_pendulum trolley: fixed value or CSV path (step,value)."""
+
+  plot_state_action_curve: bool = False
+  """Display trolley state/action curves during play (env 0)."""
+  save_state_action_curve: bool = False
+  """Save trolley state/action curves as .png and .csv after play (env 0)."""
+  plot_window: int = 400
+  """Number of recent steps to keep in the live plot window."""
+  trolley_output_dir: str | None = None
+  """Optional output directory for state/action curves. Defaults under run log dir or local outputs/."""
 
   # Internal flag used by demo script.
   _demo_mode: tyro.conf.Suppress[bool] = False
@@ -50,17 +65,78 @@ class PlayConfig:
 def run_play(task_id: str, cfg: PlayConfig):
   configure_torch_backends()
 
+  supports_trolley_curves = task_id == "Mjlab-QcPendulum"
+  if (
+    (cfg.plot_state_action_curve or cfg.save_state_action_curve)
+    and not supports_trolley_curves
+  ):
+    raise ValueError(
+      "State/action curve plotting/saving is only supported for the "
+      "Mjlab-QcPendulum task."
+    )
+
   device = cfg.device or ("cuda:0" if torch.cuda.is_available() else "cpu")
 
   env_cfg = load_env_cfg(task_id, play=True)
   agent_cfg = load_rl_cfg(task_id)
 
+  trolley_curve_values_np: np.ndarray | None = None
+
   # Handle task-specific parameters
   if task_id == "Mjlab-QcPendulum" and cfg.trolley_target is not None:
     if "trolley_target" in env_cfg.commands:
-      env_cfg.commands["trolley_target"].initial_target = cfg.trolley_target
-      env_cfg.commands["trolley_target"].mode = "fixed"  # 固定目标位置
-      print(f"[INFO]: Set trolley target to {cfg.trolley_target} (fixed mode)")
+      parsed_target_value: float | None = None
+      parsed_target_curve_path: Path | None = None
+
+      if isinstance(cfg.trolley_target, str):
+        target_arg = cfg.trolley_target.strip()
+        target_path = Path(target_arg)
+        if target_path.suffix.lower() == ".csv" or target_path.exists():
+          parsed_target_curve_path = target_path
+        else:
+          try:
+            parsed_target_value = float(target_arg)
+          except ValueError as err:
+            raise ValueError(
+              "For --trolley-target, provide either a numeric value or a CSV file "
+              f"path. Got: {cfg.trolley_target}"
+            ) from err
+      else:
+        parsed_target_value = float(cfg.trolley_target)
+
+      if parsed_target_curve_path is not None:
+        if not parsed_target_curve_path.exists():
+          raise FileNotFoundError(
+            f"Trolley target CSV not found: {parsed_target_curve_path}"
+          )
+        curve_data = np.loadtxt(
+          parsed_target_curve_path, delimiter=",", skiprows=1
+        )
+        if curve_data.ndim == 1:
+          curve_data = curve_data.reshape(1, -1)
+        if curve_data.shape[1] < 2:
+          raise ValueError(
+            "Trolley target CSV must have at least 2 columns: step,value"
+          )
+
+        trolley_curve_values_np = np.asarray(curve_data[:, 1], dtype=np.float32)
+        if trolley_curve_values_np.size == 0:
+          raise ValueError(
+            f"Trolley target CSV has no data rows: {parsed_target_curve_path}"
+          )
+
+        first_target = float(trolley_curve_values_np[0])
+        env_cfg.commands["trolley_target"].initial_target = first_target
+        env_cfg.commands["trolley_target"].mode = "fixed"
+        print(
+          "[INFO]: Set trolley target from curve: "
+          f"{parsed_target_curve_path} ({trolley_curve_values_np.size} steps)"
+        )
+      else:
+        assert parsed_target_value is not None
+        env_cfg.commands["trolley_target"].initial_target = parsed_target_value
+        env_cfg.commands["trolley_target"].mode = "fixed"
+        print(f"[INFO]: Set trolley target to {parsed_target_value} (fixed mode)")
 
   DUMMY_MODE = cfg.agent in {"zero", "random"}
   TRAINED_MODE = not DUMMY_MODE
@@ -169,10 +245,18 @@ def run_play(task_id: str, cfg: PlayConfig):
 
   if TRAINED_MODE and cfg.video:
     print("[INFO] Recording videos during play")
-    assert log_dir is not None  # log_dir is set in TRAINED_MODE block
+    video_dir = (
+      Path(cfg.video_output_dir)
+      if cfg.video_output_dir is not None
+      else (
+        log_dir / "videos" / "play"
+        if log_dir is not None
+        else Path("outputs") / "videos" / "play"
+      )
+    )
     env = VideoRecorder(
       env,
-      video_folder=log_dir / "videos" / "play",
+      video_folder=video_dir,
       step_trigger=lambda step: step == 0,
       video_length=cfg.video_length,
       disable_logger=True,
@@ -205,6 +289,155 @@ def run_play(task_id: str, cfg: PlayConfig):
     )
     policy = runner.get_inference_policy(device=device)
 
+  action_shape: tuple[int, ...] = env.unwrapped.action_space.shape
+  num_actions = action_shape[-1]
+  plot_window = max(10, cfg.plot_window)
+  action_history: deque[list[float]] = deque(maxlen=plot_window)
+  recorded_actions: list[list[float]] = []
+  playback_plot_fig = None
+  action_plot_ax = None
+  action_plot_lines: list[Line2D] = []
+  trolley_plot_axes = None
+  trolley_plot_lines: tuple[Line2D, Line2D, Line2D] | None = None
+  if cfg.plot_state_action_curve:
+    plt.ion()
+    playback_plot_fig, playback_axes = plt.subplots(4, 1, figsize=(9, 10), sharex=True)
+    trolley_plot_axes = playback_axes[:3]
+    action_plot_ax = playback_axes[3]
+    pos_line = trolley_plot_axes[0].plot([], [], label="trolley_pos", color="tab:blue")[0]
+    vel_line = trolley_plot_axes[1].plot([], [], label="trolley_vel", color="tab:orange")[0]
+    acc_line = trolley_plot_axes[2].plot([], [], label="trolley_acc", color="tab:green")[0]
+    trolley_plot_lines = (pos_line, vel_line, acc_line)
+    action_plot_lines = [
+      action_plot_ax.plot([], [], label=f"a{i}")[0] for i in range(num_actions)
+    ]
+
+    trolley_plot_axes[0].set_title(f"Playback Curves ({task_id}, env 0)")
+    trolley_plot_axes[0].set_ylabel("Position")
+    trolley_plot_axes[1].set_ylabel("Velocity")
+    trolley_plot_axes[2].set_ylabel("Acceleration")
+    trolley_plot_axes[2].set_xlabel("Step")
+    action_plot_ax.set_ylabel("Action")
+    action_plot_ax.set_xlabel("Step")
+    action_plot_ax.legend(loc="upper right")
+    for axis in trolley_plot_axes:
+      axis.grid(True, alpha=0.3)
+      axis.legend(loc="upper right")
+    action_plot_ax.grid(True, alpha=0.3)
+    playback_plot_fig.tight_layout()
+
+  trolley_history: list[tuple[float, float, float]] = []
+
+  trolley_asset = None
+  trolley_joint_idx = None
+  trolley_target_term = None
+  trolley_curve_values: torch.Tensor | None = None
+  trolley_curve_step_count: int | None = None
+  if supports_trolley_curves:
+    base_env = env.unwrapped
+    trolley_asset = base_env.scene["qc_pendulum"]
+    trolley_joint_idx = trolley_asset.find_joints("trolley_joint")[0][0]
+    if (
+      trolley_curve_values_np is not None
+      and base_env.command_manager is not None
+      and "trolley_target" in base_env.command_manager.active_terms
+    ):
+      trolley_target_term = base_env.command_manager.get_term("trolley_target")
+      trolley_curve_values = torch.as_tensor(
+        trolley_curve_values_np, device=base_env.device, dtype=torch.float32
+      )
+      trolley_curve_step_count = int(trolley_curve_values.shape[0])
+      # Ensure the first command is in place before stepping.
+      trolley_target_term.target_pos[:] = trolley_curve_values[0]
+
+  class PolicyWithPlaybackTracking:
+    def __init__(self, wrapped_policy):
+      self.wrapped_policy = wrapped_policy
+      self.update_every = 5
+      self.call_count = 0
+      self.curve_step_idx = 0
+
+    def __call__(self, obs) -> torch.Tensor:
+      if (
+        trolley_target_term is not None
+        and trolley_curve_values is not None
+        and trolley_curve_step_count is not None
+        and self.curve_step_idx < trolley_curve_step_count
+      ):
+        trolley_target_term.target_pos[:] = trolley_curve_values[self.curve_step_idx]
+        self.curve_step_idx += 1
+
+      actions = self.wrapped_policy(obs)
+      action_env0 = actions[0].detach().float().cpu().flatten().tolist()
+      recorded_actions.append(action_env0)
+
+      if cfg.plot_state_action_curve:
+        action_history.append(action_env0)
+
+      if trolley_asset is not None and trolley_joint_idx is not None:
+        trolley_pos = float(trolley_asset.data.joint_pos[0, trolley_joint_idx].item())
+        trolley_vel = float(trolley_asset.data.joint_vel[0, trolley_joint_idx].item())
+        trolley_acc = float(trolley_asset.data.joint_acc[0, trolley_joint_idx].item())
+        trolley_history.append((trolley_pos, trolley_vel, trolley_acc))
+
+      self.call_count += 1
+      if (
+        cfg.plot_state_action_curve
+        and self.call_count % self.update_every == 0
+        and len(action_history) > 1
+      ):
+        ys = torch.tensor(list(action_history), dtype=torch.float32)
+        xs = list(range(len(action_history)))
+        for i, line in enumerate(action_plot_lines):
+          line.set_data(xs, ys[:, i].tolist())
+        assert action_plot_ax is not None
+        assert playback_plot_fig is not None
+        action_plot_ax.set_xlim(0, max(1, len(action_history) - 1))
+        y_min = float(torch.min(ys))
+        y_max = float(torch.max(ys))
+        if y_min == y_max:
+          y_min -= 0.1
+          y_max += 0.1
+        margin = 0.1 * (y_max - y_min)
+        action_plot_ax.set_ylim(y_min - margin, y_max + margin)
+        playback_plot_fig.canvas.draw_idle()
+        playback_plot_fig.canvas.flush_events()
+        plt.pause(0.001)
+
+      if (
+        cfg.plot_state_action_curve
+        and trolley_plot_axes is not None
+        and trolley_plot_lines is not None
+        and len(trolley_history) > 1
+        and self.call_count % self.update_every == 0
+      ):
+        xs = list(range(len(trolley_history)))
+        ys = np.asarray(trolley_history, dtype=np.float32)
+        for axis, line, values in zip(
+          trolley_plot_axes,
+          trolley_plot_lines,
+          (ys[:, 0], ys[:, 1], ys[:, 2]),
+          strict=True,
+        ):
+          line.set_data(xs, values.tolist())
+          axis.set_xlim(0, max(1, len(xs) - 1))
+          y_min = float(values.min())
+          y_max = float(values.max())
+          if y_min == y_max:
+            y_min -= 0.1
+            y_max += 0.1
+          margin = 0.1 * (y_max - y_min)
+          axis.set_ylim(y_min - margin, y_max + margin)
+        assert playback_plot_fig is not None
+        playback_plot_fig.canvas.draw_idle()
+        playback_plot_fig.canvas.flush_events()
+        plt.pause(0.001)
+
+      return actions
+
+  policy = PolicyWithPlaybackTracking(policy)
+  viewer_num_steps = trolley_curve_step_count
+
   # Handle "auto" viewer selection.
   if cfg.viewer == "auto":
     has_display = bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
@@ -214,13 +447,89 @@ def run_play(task_id: str, cfg: PlayConfig):
     resolved_viewer = cfg.viewer
 
   if resolved_viewer == "native":
-    NativeMujocoViewer(env, policy).run()
+    NativeMujocoViewer(env, policy).run(num_steps=viewer_num_steps)
   elif resolved_viewer == "viser":
-    ViserPlayViewer(env, policy).run()
+    ViserPlayViewer(env, policy).run(num_steps=viewer_num_steps)
   else:
     raise RuntimeError(f"Unsupported viewer backend: {resolved_viewer}")
 
   env.close()
+  if cfg.plot_state_action_curve:
+    plt.ioff()
+    plt.show(block=False)
+  if (
+    cfg.save_state_action_curve
+    and supports_trolley_curves
+    and trolley_history
+    and recorded_actions
+  ):
+    output_dir = (
+      Path(cfg.trolley_output_dir)
+      if cfg.trolley_output_dir is not None
+      else (log_dir / "play" if log_dir is not None else Path("outputs") / "play")
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    action_array = np.asarray(recorded_actions, dtype=np.float32)
+    trolley_array = np.asarray(trolley_history, dtype=np.float32)
+    n = len(trolley_array)
+
+    # Align reference curve to recorded length (trim or pad with last value).
+    if trolley_curve_values_np is not None:
+      ref = trolley_curve_values_np
+      if len(ref) >= n:
+        ref_aligned: np.ndarray | None = ref[:n]
+      else:
+        pad = np.full(n - len(ref), ref[-1], dtype=np.float32)
+        ref_aligned = np.concatenate([ref, pad])
+    else:
+      ref_aligned = None
+
+    data_path = output_dir / "state_action_curves.csv"
+    action_header = ",".join(f"action_{i}" for i in range(action_array.shape[1]))
+    if ref_aligned is not None:
+      csv_data = np.column_stack(
+        (np.arange(n, dtype=np.int32), trolley_array, action_array, ref_aligned)
+      )
+      header = f"step,trolley_pos,trolley_vel,trolley_acc,{action_header},target_pos"
+    else:
+      csv_data = np.column_stack(
+        (np.arange(n, dtype=np.int32), trolley_array, action_array)
+      )
+      header = f"step,trolley_pos,trolley_vel,trolley_acc,{action_header}"
+    np.savetxt(
+      str(data_path),
+      csv_data,
+      delimiter=",",
+      header=header,
+      comments="",
+    )
+
+    save_fig, save_axes = plt.subplots(4, 1, figsize=(9, 10), sharex=True)
+    xs = np.arange(n, dtype=np.int32)
+    save_axes[0].plot(xs, trolley_array[:, 0], color="tab:blue", label="actual")
+    if ref_aligned is not None:
+      save_axes[0].plot(xs, ref_aligned, color="tab:red", linestyle="--", label="target", alpha=0.8)
+    save_axes[0].legend(loc="upper right")
+    save_axes[1].plot(xs, trolley_array[:, 1], color="tab:orange")
+    save_axes[2].plot(xs, trolley_array[:, 2], color="tab:green")
+    for i in range(action_array.shape[1]):
+      save_axes[3].plot(xs, action_array[:, i], label=f"a{i}")
+    save_axes[0].set_title(f"Playback Curves ({task_id}, env 0)")
+    save_axes[0].set_ylabel("Position")
+    save_axes[1].set_ylabel("Velocity")
+    save_axes[2].set_ylabel("Acceleration")
+    save_axes[3].set_ylabel("Action")
+    save_axes[3].set_xlabel("Step")
+    for axis in save_axes:
+      axis.grid(True, alpha=0.3)
+    save_axes[3].legend(loc="upper right")
+    save_fig.tight_layout()
+    figure_path = output_dir / "state_action_curves.png"
+    save_fig.savefig(str(figure_path), dpi=160)
+    plt.close(save_fig)
+    print(f"[INFO]: Saved state/action curve data to {data_path}")
+    print(f"[INFO]: Saved state/action curve figure to {figure_path}")
 
 
 def main():

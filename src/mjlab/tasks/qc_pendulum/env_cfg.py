@@ -104,9 +104,56 @@ def generated_commands_obs(env: ManagerBasedRlEnv, command_name: str) -> torch.T
   return cmd
 
 
-def qc_pendulum_smooth_reward(
+def previous_trolley_pos_obs(
+  env: ManagerBasedRlEnv,
+  asset_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+  """Approximate previous-step trolley position using current state and dt."""
+  asset: Entity = env.scene[asset_cfg.name]
+  pos = asset.data.joint_pos[:, asset_cfg.joint_ids]
+  vel = asset.data.joint_vel[:, asset_cfg.joint_ids]
+  dt = env.step_dt
+  return pos - vel * dt
+
+
+def previous_trolley_vel_obs(
+  env: ManagerBasedRlEnv,
+  asset_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+  """Approximate previous-step trolley velocity using current velocity and acceleration."""
+  asset: Entity = env.scene[asset_cfg.name]
+  vel = asset.data.joint_vel[:, asset_cfg.joint_ids]
+  acc = asset.data.joint_acc[:, asset_cfg.joint_ids]
+  dt = env.step_dt
+  return vel - acc * dt
+
+
+def previous_action_obs(
+  env: ManagerBasedRlEnv,
+  action_name: str,
+) -> torch.Tensor:
+  """Get previous-step action from action manager with stable shape."""
+  action_term = env.action_manager.get_term(action_name)
+  if hasattr(action_term, "prev_action") and action_term.prev_action is not None:
+    action = action_term.prev_action
+  elif hasattr(action_term, "_prev_action") and action_term._prev_action is not None:
+    action = action_term._prev_action
+  elif hasattr(action_term, "_processed_actions") and action_term._processed_actions is not None:
+    action = torch.zeros_like(action_term._processed_actions)
+  elif hasattr(action_term, "raw_actions") and action_term.raw_actions is not None:
+    action = torch.zeros_like(action_term.raw_actions)
+  else:
+    action = torch.zeros((env.num_envs, action_term.action_dim), device=env.device)
+
+  if action.ndim == 1:
+    action = action.unsqueeze(-1)
+  return action
+
+
+def trolley_track_pos_reward(
   env: ManagerBasedRlEnv,
   trolley_cfg: SceneEntityCfg,
+  pos_std: float = 0.5,
 ) -> torch.Tensor:
   """Compute smooth reward for QC pendulum trolley positioning task.
 
@@ -137,38 +184,142 @@ def qc_pendulum_smooth_reward(
       target_cmd = target_cmd.squeeze(-1) if target_cmd.ndim > 1 else target_cmd
   else:
     target_cmd = torch.full_like(trolley_pos, 0.7)
-  pos_stop = _track_lin_pos_exp(trolley_pos, cmd_pos=target_cmd, std=0.125)
+  pos_stop = _track_lin_pos_exp(trolley_pos, cmd_pos=target_cmd, std=pos_std)
 
-
-  
   return pos_stop
+
+
+def trolley_out_of_bounds(
+  env: ManagerBasedRlEnv,
+  trolley_cfg: SceneEntityCfg,
+  min_pos: float = 0.0,
+  max_pos: float = 1.4,
+) -> torch.Tensor:
+  """Termination condition: trolley position exceeds bounds.
+
+  Args:
+    env: The RL environment instance.
+    trolley_cfg: Configuration specifying which entity and joints to use.
+    min_pos: Minimum allowed position.
+    max_pos: Maximum allowed position.
+
+  Returns:
+    torch.Tensor: Boolean tensor indicating out of bounds (True = terminate).
+  """
+  asset: Entity = env.scene[trolley_cfg.name]
+  trolley_pos = asset.data.joint_pos[:, trolley_cfg.joint_ids].squeeze(-1)
+  return (trolley_pos < min_pos) | (trolley_pos > max_pos)
+
+
+def trolley_out_of_bounds_penalty(
+  env: ManagerBasedRlEnv,
+  trolley_cfg: SceneEntityCfg,
+  min_pos: float = 0.0,
+  max_pos: float = 1.4,
+) -> torch.Tensor:
+  """Penalty reward when trolley position exceeds bounds.
+
+  Args:
+    env: The RL environment instance.
+    trolley_cfg: Configuration specifying which entity and joints to use.
+    min_pos: Minimum allowed position.
+    max_pos: Maximum allowed position.
+
+  Returns:
+    torch.Tensor: Penalty values (negative for out of bounds, zero otherwise).
+  """
+  asset: Entity = env.scene[trolley_cfg.name]
+  trolley_pos = asset.data.joint_pos[:, trolley_cfg.joint_ids].squeeze(-1)
+  out_of_bounds = (trolley_pos < min_pos) | (trolley_pos > max_pos)
+  return -torch.where(out_of_bounds, torch.ones_like(trolley_pos), torch.zeros_like(trolley_pos))
+
+
+def trolley_vel_smoothness(
+  env: ManagerBasedRlEnv,
+  trolley_cfg: SceneEntityCfg,
+  vel_std: float = 0.3,
+) -> torch.Tensor:
+  """Reward for smooth trolley motion (low velocity/acceleration).
+
+  This reward encourages the trolley to move smoothly by penalizing high velocities.
+  Typically used alongside position tracking rewards to balance speed vs accuracy.
+
+  Args:
+    env: The RL environment instance.
+    trolley_cfg: Configuration specifying which entity and joints to use.
+    vel_std: Standard deviation for velocity Gaussian decay. Lower values -> stricter penalty on velocity.
+
+  Returns:
+    torch.Tensor: Reward values between 0 and 1. Higher velocity -> lower reward.
+  """
+  asset: Entity = env.scene[trolley_cfg.name]
+  trolley_vel = asset.data.joint_vel[:, trolley_cfg.joint_ids].squeeze(-1)
+  
+  # Reward based on low velocity using Gaussian decay
+  # Encourages smooth, gentle motion
+  smoothness = torch.exp(-0.5 * (torch.abs(trolley_vel) / vel_std) ** 2)
+  
+  return smoothness
+
+
+def trolley_acceleration_smoothness_reward(
+  env: ManagerBasedRlEnv,
+  trolley_cfg: SceneEntityCfg,
+  acc_std: float = 0.5,
+) -> torch.Tensor:
+  """Reward for smooth trolley acceleration (low jerk/jerkiness).
+
+  This reward encourages the trolley to accelerate/decelerate smoothly by penalizing
+  high accelerations. This promotes gentle, jerk-free motion which is important for
+  precise positioning tasks.
+
+  Args:
+    env: The RL environment instance.
+    trolley_cfg: Configuration specifying which entity and joints to use.
+    acc_std: Standard deviation for acceleration Gaussian decay. Lower values -> stricter penalty on acceleration.
+
+  Returns:
+    torch.Tensor: Reward values between 0 and 1. Higher acceleration -> lower reward.
+  """
+  asset: Entity = env.scene[trolley_cfg.name]
+  trolley_acc = asset.data.joint_acc[:, trolley_cfg.joint_ids].squeeze(-1)
+  
+  # Reward based on low acceleration using Gaussian decay
+  # Encourages smooth acceleration/deceleration
+  acc_smoothness = torch.exp(-0.5 * (torch.abs(trolley_acc) / acc_std) ** 2)
+  
+  return acc_smoothness
+
 
 
 
 def qc_pendulum_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
-  trolley_cfg = SceneEntityCfg("qc_pendulum", joint_names=("trolley_joint",))
-
+  # Create separate SceneEntityCfg instances for each manager to avoid mutation conflicts
   actor_terms = {
     "trolley_pos": ObservationTermCfg(
       func=joint_pos_rel,
-      params={"asset_cfg": trolley_cfg},
+      params={"asset_cfg": SceneEntityCfg("qc_pendulum", joint_names=("trolley_joint",))},
     ),
-    # "pole_angle": ObservationTermCfg(
-    #   func=pole_angle_cos_sin,
-    #   params={"asset_cfg": hinge_cfg},
-    # ),
     "trolley_vel": ObservationTermCfg(
       func=joint_vel_rel,
-      params={"asset_cfg": trolley_cfg},
+      params={"asset_cfg": SceneEntityCfg("qc_pendulum", joint_names=("trolley_joint",))},
+    ),
+    "prev_trolley_pos": ObservationTermCfg(
+      func=previous_trolley_pos_obs,
+      params={"asset_cfg": SceneEntityCfg("qc_pendulum", joint_names=("trolley_joint",))},
+    ),
+    "prev_trolley_vel": ObservationTermCfg(
+      func=previous_trolley_vel_obs,
+      params={"asset_cfg": SceneEntityCfg("qc_pendulum", joint_names=("trolley_joint",))},
+    ),
+    "prev_action": ObservationTermCfg(
+      func=previous_action_obs,
+      params={"action_name": "position"},
     ),
     "command": ObservationTermCfg(
       func=generated_commands_obs,
       params={"command_name": "trolley_target"},
     ),
-    # "pole_vel": ObservationTermCfg(
-    #   func=joint_vel_rel,
-    #   params={"asset_cfg": hinge_cfg},
-    # ),
   }
 
   observations = {
@@ -180,15 +331,15 @@ def qc_pendulum_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     "position": JointPositionActionCfg(
       entity_name="qc_pendulum",
       actuator_names=("trolley_joint",),
-      scale=1.0,  # 稍微降低scale以获得更稳定的控制
+      scale=1.0,  
     ),
   }
 
   commands = {
     "trolley_target": TrolleyTargetCommandCfg(
-      resampling_time_range=(10.0, 10.0),
+      resampling_time_range=(2.0, 5.0),
       entity_name="qc_pendulum",
-      target_range=(0.0, 1.4),
+      target_range=(0.0, 1.5),
       initial_target=0.7,
       mode="random",
       debug_vis=False,
@@ -200,7 +351,7 @@ def qc_pendulum_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       func=reset_joints_by_offset,
       mode="reset",
       params={
-        "position_range": (0.0, 0.2),
+        "position_range": (0.0, 0.05),
         "velocity_range": (0.0, 0.01),
         "asset_cfg": SceneEntityCfg("qc_pendulum", joint_names=("trolley_joint",)),
       },
@@ -208,15 +359,34 @@ def qc_pendulum_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   }
 
   rewards = {
-    "smooth_reward": RewardTermCfg(
-      func=qc_pendulum_smooth_reward,
+    "trolley_track_pos_reward": RewardTermCfg(
+      func=trolley_track_pos_reward,
       weight=1.0,
-      params={"trolley_cfg": trolley_cfg},
+      params={"trolley_cfg": SceneEntityCfg("qc_pendulum", joint_names=("trolley_joint",)), "pos_std": 0.5},
+    ),
+    "trolley_vel_smoothness": RewardTermCfg(
+      func=trolley_vel_smoothness,
+      weight=0.4,
+      params={"trolley_cfg": SceneEntityCfg("qc_pendulum", joint_names=("trolley_joint",)), "vel_std": 3.5},
+    ),    
+    "trolley_acc_smoothness": RewardTermCfg(
+      func=trolley_acceleration_smoothness_reward,
+      weight=0.2,
+      params={"trolley_cfg": SceneEntityCfg("qc_pendulum", joint_names=("trolley_joint",)), "acc_std": 1.5},
+    ),    
+    "trolley_out_of_bounds_penalty": RewardTermCfg(
+      func=trolley_out_of_bounds_penalty,
+      weight=1.0,
+      params={"trolley_cfg": SceneEntityCfg("qc_pendulum", joint_names=("trolley_joint",)), "min_pos": 0.0, "max_pos": 1.4},
     ),
   }
 
   terminations = {
     "time_out": TerminationTermCfg(func=time_out, time_out=True),
+    "out_of_bounds": TerminationTermCfg(
+      func=trolley_out_of_bounds,
+      params={"trolley_cfg": SceneEntityCfg("qc_pendulum", joint_names=("trolley_joint",)), "min_pos": 0.0, "max_pos": 1.4},
+    ),
   }
   
   if play:

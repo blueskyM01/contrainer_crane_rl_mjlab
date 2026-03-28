@@ -28,7 +28,7 @@ def qc_pendulum_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
       entropy_coef=0.01,
       num_learning_epochs=5,
       num_mini_batches=4,
-      learning_rate=1.0e-3,  # 从 1.0e-3 改为 1.0e-4（原来的十分之一）
+      learning_rate=1.0e-3,
       schedule="adaptive",
       gamma=0.99,
       lam=0.95,
