@@ -125,7 +125,7 @@
 
                 <body name="trolley" pos="0 -0.7 1.9">
                     <joint type="slide" name="trolley_joint" pos="0 0 0" axis="0 1 0" damping="0.5"
-                        frictionloss="0.01" stiffness="0" range="0 1.4" />
+                        frictionloss="0.01" stiffness="0" range="-0.1 1.5" />
                     <body name="part_00_trolley - pulley-2" pos="0 0 0" euler="0 0 0">
                         <geom name="geom_00_trolley - pulley-2" type="mesh" mesh="trolley - pulley-2_mesh" pos="0 0 0" mass="0.027111797859617568" rgba="0.5 0 0.5 1"/>
                     </body>
@@ -190,6 +190,6 @@
 
 
     <actuator>
-        <position name="trolley_driver" kp="20" kv="25" joint="trolley_joint" ctrlrange="0 1.4" />
+        <position name="trolley_driver" kp="20" kv="25" joint="trolley_joint" ctrlrange="-0.1 1.5" />
     </actuator>
 </mujoco>

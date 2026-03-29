@@ -50,9 +50,9 @@ class PlayConfig:
   """Target for qc_pendulum trolley: fixed value or CSV path (step,value)."""
 
   plot_state_action_curve: bool = False
-  """Display trolley state/action curves during play (env 0)."""
+  """Display trolley/pendulum state and action curves during play (env 0)."""
   save_state_action_curve: bool = False
-  """Save trolley state/action curves as .png and .csv after play (env 0)."""
+  """Save trolley/pendulum state and action curves as .png and .csv after play (env 0)."""
   plot_window: int = 400
   """Number of recent steps to keep in the live plot window."""
   trolley_output_dir: str | None = None
@@ -298,16 +298,17 @@ def run_play(task_id: str, cfg: PlayConfig):
   action_plot_ax = None
   action_plot_lines: list[Line2D] = []
   trolley_plot_axes = None
-  trolley_plot_lines: tuple[Line2D, Line2D, Line2D] | None = None
+  trolley_plot_lines: tuple[Line2D, Line2D, Line2D, Line2D] | None = None
   if cfg.plot_state_action_curve:
     plt.ion()
-    playback_plot_fig, playback_axes = plt.subplots(4, 1, figsize=(9, 10), sharex=True)
-    trolley_plot_axes = playback_axes[:3]
-    action_plot_ax = playback_axes[3]
+    playback_plot_fig, playback_axes = plt.subplots(5, 1, figsize=(9, 12), sharex=True)
+    trolley_plot_axes = playback_axes[:4]
+    action_plot_ax = playback_axes[4]
     pos_line = trolley_plot_axes[0].plot([], [], label="trolley_pos", color="tab:blue")[0]
     vel_line = trolley_plot_axes[1].plot([], [], label="trolley_vel", color="tab:orange")[0]
     acc_line = trolley_plot_axes[2].plot([], [], label="trolley_acc", color="tab:green")[0]
-    trolley_plot_lines = (pos_line, vel_line, acc_line)
+    angle_line = trolley_plot_axes[3].plot([], [], label="pendulum_angle_deg", color="tab:red")[0]
+    trolley_plot_lines = (pos_line, vel_line, acc_line, angle_line)
     action_plot_lines = [
       action_plot_ax.plot([], [], label=f"a{i}")[0] for i in range(num_actions)
     ]
@@ -316,7 +317,8 @@ def run_play(task_id: str, cfg: PlayConfig):
     trolley_plot_axes[0].set_ylabel("Position")
     trolley_plot_axes[1].set_ylabel("Velocity")
     trolley_plot_axes[2].set_ylabel("Acceleration")
-    trolley_plot_axes[2].set_xlabel("Step")
+    trolley_plot_axes[3].set_ylabel("Angle (deg)")
+    trolley_plot_axes[3].set_xlabel("Step")
     action_plot_ax.set_ylabel("Action")
     action_plot_ax.set_xlabel("Step")
     action_plot_ax.legend(loc="upper right")
@@ -326,7 +328,7 @@ def run_play(task_id: str, cfg: PlayConfig):
     action_plot_ax.grid(True, alpha=0.3)
     playback_plot_fig.tight_layout()
 
-  trolley_history: list[tuple[float, float, float]] = []
+  trolley_history: list[tuple[float, float, float, float]] = []
 
   trolley_asset = None
   trolley_joint_idx = None
@@ -378,7 +380,17 @@ def run_play(task_id: str, cfg: PlayConfig):
         trolley_pos = float(trolley_asset.data.joint_pos[0, trolley_joint_idx].item())
         trolley_vel = float(trolley_asset.data.joint_vel[0, trolley_joint_idx].item())
         trolley_acc = float(trolley_asset.data.joint_acc[0, trolley_joint_idx].item())
-        trolley_history.append((trolley_pos, trolley_vel, trolley_acc))
+        # Compute pendulum angle in Y-Z plane relative to vertical downward direction.
+        # 0 deg means ball is directly below trolley anchor; negative is -Y side.
+        ball_q_adr = trolley_asset.data.indexing.free_joint_q_adr
+        ball_y = float(trolley_asset.data.data.qpos[0, ball_q_adr[1]].item())
+        ball_z = float(trolley_asset.data.data.qpos[0, ball_q_adr[2]].item())
+        anchor_y = -0.7 + trolley_pos
+        anchor_z = 1.9
+        dy = ball_y - anchor_y
+        dz = anchor_z - ball_z
+        pendulum_angle_deg = float(np.degrees(np.arctan2(dy, dz)))
+        trolley_history.append((trolley_pos, trolley_vel, trolley_acc, pendulum_angle_deg))
 
       self.call_count += 1
       if (
@@ -416,7 +428,7 @@ def run_play(task_id: str, cfg: PlayConfig):
         for axis, line, values in zip(
           trolley_plot_axes,
           trolley_plot_lines,
-          (ys[:, 0], ys[:, 1], ys[:, 2]),
+          (ys[:, 0], ys[:, 1], ys[:, 2], ys[:, 3]),
           strict=True,
         ):
           line.set_data(xs, values.tolist())
@@ -491,12 +503,18 @@ def run_play(task_id: str, cfg: PlayConfig):
       csv_data = np.column_stack(
         (np.arange(n, dtype=np.int32), trolley_array, action_array, ref_aligned)
       )
-      header = f"step,trolley_pos,trolley_vel,trolley_acc,{action_header},target_pos"
+      header = (
+        f"step,trolley_pos,trolley_vel,trolley_acc,pendulum_angle_deg,"
+        f"{action_header},target_pos"
+      )
     else:
       csv_data = np.column_stack(
         (np.arange(n, dtype=np.int32), trolley_array, action_array)
       )
-      header = f"step,trolley_pos,trolley_vel,trolley_acc,{action_header}"
+      header = (
+        f"step,trolley_pos,trolley_vel,trolley_acc,pendulum_angle_deg,"
+        f"{action_header}"
+      )
     np.savetxt(
       str(data_path),
       csv_data,
@@ -505,7 +523,7 @@ def run_play(task_id: str, cfg: PlayConfig):
       comments="",
     )
 
-    save_fig, save_axes = plt.subplots(4, 1, figsize=(9, 10), sharex=True)
+    save_fig, save_axes = plt.subplots(5, 1, figsize=(9, 12), sharex=True)
     xs = np.arange(n, dtype=np.int32)
     save_axes[0].plot(xs, trolley_array[:, 0], color="tab:blue", label="actual")
     if ref_aligned is not None:
@@ -513,17 +531,19 @@ def run_play(task_id: str, cfg: PlayConfig):
     save_axes[0].legend(loc="upper right")
     save_axes[1].plot(xs, trolley_array[:, 1], color="tab:orange")
     save_axes[2].plot(xs, trolley_array[:, 2], color="tab:green")
+    save_axes[3].plot(xs, trolley_array[:, 3], color="tab:red")
     for i in range(action_array.shape[1]):
-      save_axes[3].plot(xs, action_array[:, i], label=f"a{i}")
+      save_axes[4].plot(xs, action_array[:, i], label=f"a{i}")
     save_axes[0].set_title(f"Playback Curves ({task_id}, env 0)")
     save_axes[0].set_ylabel("Position")
     save_axes[1].set_ylabel("Velocity")
     save_axes[2].set_ylabel("Acceleration")
-    save_axes[3].set_ylabel("Action")
-    save_axes[3].set_xlabel("Step")
+    save_axes[3].set_ylabel("Angle (deg)")
+    save_axes[4].set_ylabel("Action")
+    save_axes[4].set_xlabel("Step")
     for axis in save_axes:
       axis.grid(True, alpha=0.3)
-    save_axes[3].legend(loc="upper right")
+    save_axes[4].legend(loc="upper right")
     save_fig.tight_layout()
     figure_path = output_dir / "state_action_curves.png"
     save_fig.savefig(str(figure_path), dpi=160)

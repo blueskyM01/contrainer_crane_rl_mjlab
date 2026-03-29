@@ -21,9 +21,9 @@ from mjlab.envs import mdp
 from mjlab.envs.mdp import (
   joint_pos_rel,
   joint_vel_rel,
-  reset_joints_by_offset,
   time_out,
 )
+from mjlab.utils.lab_api.math import sample_uniform
 
 from mjlab.entity import Entity, EntityArticulationInfoCfg, EntityCfg
 from mjlab.envs.mdp.actions import JointEffortActionCfg
@@ -148,6 +148,100 @@ def previous_action_obs(
   if action.ndim == 1:
     action = action.unsqueeze(-1)
   return action
+
+
+def reset_trolley_with_ball(
+  env: ManagerBasedRlEnv,
+  env_ids: torch.Tensor | None,
+  position_range: tuple[float, float],
+  velocity_range: tuple[float, float],
+  angle_range_deg: tuple[float, float],
+  trolley_cfg: SceneEntityCfg,
+) -> None:
+  """Reset trolley joint and initialize ball with a random pendulum angle.
+
+  The tendon length is kept constant (0.9 m) while the line from
+  ``anchor_trolley`` to ``anchor_ball`` is initialized at a random angle in the
+  Y-Z plane.
+
+  Angle convention:
+  - 0 deg: line overlaps with vertical downward direction.
+  - positive angle: ball shifts toward +Y.
+  - negative angle: ball shifts toward -Y.
+
+  Initialization policy:
+  - Trolley starts at the absolute joint position sampled from ``position_range``
+    (clamped only by joint limits). This is independent of the ball angle.
+  - Pendulum starts from ``angle_range_deg`` sample relative to the trolley position.
+  """
+  if env_ids is None:
+    env_ids = torch.arange(env.num_envs, device=env.device, dtype=torch.int)
+
+  asset: Entity = env.scene[trolley_cfg.name]
+  default_joint_pos = asset.data.default_joint_pos
+  assert default_joint_pos is not None
+  default_joint_vel = asset.data.default_joint_vel
+  assert default_joint_vel is not None
+  soft_joint_pos_limits = asset.data.soft_joint_pos_limits
+  assert soft_joint_pos_limits is not None
+
+  rope_len = 0.9
+
+  angle_deg = sample_uniform(
+    angle_range_deg[0],
+    angle_range_deg[1],
+    (len(env_ids), 1),
+    env.device,
+  )
+  angle_rad = angle_deg * (math.pi / 180.0)
+
+  # Step 1: Compute trolley joint reset from position_range (absolute joint position).
+  # Use the default shape as reference; sample directly so the trolley position is
+  # fully determined by position_range and independent of the ball angle.
+  _shape = default_joint_pos[env_ids][:, trolley_cfg.joint_ids].shape
+  joint_pos = sample_uniform(*position_range, _shape, env.device)
+  joint_pos_limits = soft_joint_pos_limits[env_ids][:, trolley_cfg.joint_ids]
+  joint_pos = joint_pos.clamp_(joint_pos_limits[..., 0], joint_pos_limits[..., 1])
+
+  joint_vel = default_joint_vel[env_ids][:, trolley_cfg.joint_ids].clone()
+  joint_vel += sample_uniform(*velocity_range, joint_vel.shape, env.device)
+
+  joint_ids = trolley_cfg.joint_ids
+  if isinstance(joint_ids, list):
+    joint_ids = torch.tensor(joint_ids, device=env.device)
+
+  asset.write_joint_state_to_sim(
+    joint_pos.view(len(env_ids), -1),
+    joint_vel.view(len(env_ids), -1),
+    env_ids=env_ids,
+    joint_ids=joint_ids,
+  )
+
+  # Step 2: Move ball so tendon length stays fixed with random initial angle.
+  # Geometry (from XML): anchor_trolley = (0.61, -0.7 + p, 1.9),
+  # default anchor_ball = (0.61, -0.7, 1.0), so rope length is 0.9 m.
+  n = len(env_ids)
+
+  anchor_y = -0.7 + joint_pos
+  anchor_z = torch.full((n, 1), 1.9, device=env.device)
+  ball_y = anchor_y + rope_len * torch.sin(angle_rad)
+  ball_z = anchor_z - rope_len * torch.cos(angle_rad)
+
+  ball_qpos = torch.zeros(n, 7, device=env.device)
+  ball_qpos[:, 0] = 0.61
+  ball_qpos[:, 1] = ball_y.squeeze(-1)
+  ball_qpos[:, 2] = ball_z.squeeze(-1)
+  ball_qpos[:, 3] = 1.0  # qw=1: identity quaternion
+
+  # free_joint_q_adr holds the 7 qpos indices for the ball freejoint.
+  # The entity's is_fixed_base=True (trolley_joint is first in the MuJoCo tree),
+  # so write_root_link_pose_to_sim would raise; write directly instead.
+  ball_q_adr = asset.data.indexing.free_joint_q_adr  # shape [7]
+  ball_v_adr = asset.data.indexing.free_joint_v_adr  # shape [6]
+  asset.data.data.qpos[env_ids.unsqueeze(1), ball_q_adr.unsqueeze(0)] = ball_qpos
+  asset.data.data.qvel[
+    env_ids.unsqueeze(1), ball_v_adr.unsqueeze(0)
+  ] = torch.zeros(n, 6, device=env.device)
 
 
 def trolley_track_pos_reward(
@@ -339,7 +433,7 @@ def qc_pendulum_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     "trolley_target": TrolleyTargetCommandCfg(
       resampling_time_range=(2.0, 5.0),
       entity_name="qc_pendulum",
-      target_range=(0.0, 1.5),
+      target_range=(-0.1, 1.5),
       initial_target=0.7,
       mode="random",
       debug_vis=False,
@@ -348,12 +442,15 @@ def qc_pendulum_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
 
   events = {
     "reset_trolley": EventTermCfg(
-      func=reset_joints_by_offset,
+      func=reset_trolley_with_ball,
       mode="reset",
       params={
-        "position_range": (0.0, 0.05),
-        "velocity_range": (0.0, 0.01),
-        "asset_cfg": SceneEntityCfg("qc_pendulum", joint_names=("trolley_joint",)),
+        # For negative angles, keep a small margin from the lower limit (0.0)
+        # to avoid the trolley being pinned against the joint stop.
+        "position_range": (0.002, 1.4),
+        "velocity_range": (-0.4, 0.4),
+        "angle_range_deg": (-10.0, 10.0),
+        "trolley_cfg": SceneEntityCfg("qc_pendulum", joint_names=("trolley_joint",)),
       },
     ),
   }
