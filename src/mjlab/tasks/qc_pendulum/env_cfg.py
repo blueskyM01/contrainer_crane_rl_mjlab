@@ -128,6 +128,50 @@ def previous_trolley_vel_obs(
   return vel - acc * dt
 
 
+def pendulum_angle_obs(
+  env: ManagerBasedRlEnv,
+  asset_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+  """Pendulum angle relative to vertical downward direction in the Y-Z plane."""
+  asset: Entity = env.scene[asset_cfg.name]
+  trolley_pos = asset.data.joint_pos[:, asset_cfg.joint_ids]
+  ball_q_adr = asset.data.indexing.free_joint_q_adr
+  ball_y = asset.data.data.qpos[:, ball_q_adr[1]].unsqueeze(-1)
+  ball_z = asset.data.data.qpos[:, ball_q_adr[2]].unsqueeze(-1)
+
+  anchor_y = -0.7 + trolley_pos
+  anchor_z = torch.full_like(anchor_y, 1.9)
+  dy = ball_y - anchor_y
+  dz = anchor_z - ball_z
+  return torch.atan2(dy, dz)
+
+
+def previous_pendulum_angle_obs(
+  env: ManagerBasedRlEnv,
+  asset_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+  """Approximate previous-step pendulum angle from current geometry and velocity."""
+  asset: Entity = env.scene[asset_cfg.name]
+  trolley_pos = asset.data.joint_pos[:, asset_cfg.joint_ids]
+  trolley_vel = asset.data.joint_vel[:, asset_cfg.joint_ids]
+  ball_q_adr = asset.data.indexing.free_joint_q_adr
+  ball_v_adr = asset.data.indexing.free_joint_v_adr
+
+  ball_y = asset.data.data.qpos[:, ball_q_adr[1]].unsqueeze(-1)
+  ball_z = asset.data.data.qpos[:, ball_q_adr[2]].unsqueeze(-1)
+  ball_vy = asset.data.data.qvel[:, ball_v_adr[1]].unsqueeze(-1)
+  ball_vz = asset.data.data.qvel[:, ball_v_adr[2]].unsqueeze(-1)
+
+  dt = env.step_dt
+  prev_anchor_y = -0.7 + (trolley_pos - trolley_vel * dt)
+  prev_anchor_z = torch.full_like(prev_anchor_y, 1.9)
+  prev_ball_y = ball_y - ball_vy * dt
+  prev_ball_z = ball_z - ball_vz * dt
+  dy = prev_ball_y - prev_anchor_y
+  dz = prev_anchor_z - prev_ball_z
+  return torch.atan2(dy, dz)
+
+
 def previous_action_obs(
   env: ManagerBasedRlEnv,
   action_name: str,
@@ -155,7 +199,7 @@ def reset_trolley_with_ball(
   env_ids: torch.Tensor | None,
   position_range: tuple[float, float],
   velocity_range: tuple[float, float],
-  angle_range_deg: tuple[float, float],
+  angle_range_rad: tuple[float, float],
   trolley_cfg: SceneEntityCfg,
 ) -> None:
   """Reset trolley joint and initialize ball with a random pendulum angle.
@@ -165,14 +209,14 @@ def reset_trolley_with_ball(
   Y-Z plane.
 
   Angle convention:
-  - 0 deg: line overlaps with vertical downward direction.
+  - 0 rad: line overlaps with vertical downward direction.
   - positive angle: ball shifts toward +Y.
   - negative angle: ball shifts toward -Y.
 
   Initialization policy:
   - Trolley starts at the absolute joint position sampled from ``position_range``
     (clamped only by joint limits). This is independent of the ball angle.
-  - Pendulum starts from ``angle_range_deg`` sample relative to the trolley position.
+  - Pendulum starts from ``angle_range_rad`` sample relative to the trolley position.
   """
   if env_ids is None:
     env_ids = torch.arange(env.num_envs, device=env.device, dtype=torch.int)
@@ -187,13 +231,12 @@ def reset_trolley_with_ball(
 
   rope_len = 0.9
 
-  angle_deg = sample_uniform(
-    angle_range_deg[0],
-    angle_range_deg[1],
+  angle_rad = sample_uniform(
+    angle_range_rad[0],
+    angle_range_rad[1],
     (len(env_ids), 1),
     env.device,
   )
-  angle_rad = angle_deg * (math.pi / 180.0)
 
   # Step 1: Compute trolley joint reset from position_range (absolute joint position).
   # Use the default shape as reference; sample directly so the trolley position is
@@ -281,6 +324,16 @@ def trolley_track_pos_reward(
   pos_stop = _track_lin_pos_exp(trolley_pos, cmd_pos=target_cmd, std=pos_std)
 
   return pos_stop
+
+
+def pendulum_anti_sway_reward(
+  env: ManagerBasedRlEnv,
+  trolley_cfg: SceneEntityCfg,
+  angle_std: float = 0.2,
+) -> torch.Tensor:
+  """Reward for keeping the pendulum close to vertical downward (angle 0 rad)."""
+  angle = pendulum_angle_obs(env, trolley_cfg)
+  return torch.exp(-0.5 * (angle.squeeze(-1) / angle_std) ** 2)
 
 
 def trolley_out_of_bounds(
@@ -406,6 +459,14 @@ def qc_pendulum_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       func=previous_trolley_vel_obs,
       params={"asset_cfg": SceneEntityCfg("qc_pendulum", joint_names=("trolley_joint",))},
     ),
+    "pendulum_angle": ObservationTermCfg(
+      func=pendulum_angle_obs,
+      params={"asset_cfg": SceneEntityCfg("qc_pendulum", joint_names=("trolley_joint",))},
+    ),
+    "prev_pendulum_angle": ObservationTermCfg(
+      func=previous_pendulum_angle_obs,
+      params={"asset_cfg": SceneEntityCfg("qc_pendulum", joint_names=("trolley_joint",))},
+    ),
     "prev_action": ObservationTermCfg(
       func=previous_action_obs,
       params={"action_name": "position"},
@@ -447,9 +508,18 @@ def qc_pendulum_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       params={
         # For negative angles, keep a small margin from the lower limit (0.0)
         # to avoid the trolley being pinned against the joint stop.
+        
+        # train
         "position_range": (0.002, 1.4),
         "velocity_range": (-0.4, 0.4),
-        "angle_range_deg": (-10.0, 10.0),
+        "angle_range_rad": (-0.17453293, 0.17453293),
+        
+        # play
+        # "position_range": (0.002, 0.002),
+        # "velocity_range": (0.0, 0.0),
+        # "angle_range_rad": (-0.17453293, 0.17453293),
+        
+        
         "trolley_cfg": SceneEntityCfg("qc_pendulum", joint_names=("trolley_joint",)),
       },
     ),
@@ -460,6 +530,11 @@ def qc_pendulum_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       func=trolley_track_pos_reward,
       weight=1.0,
       params={"trolley_cfg": SceneEntityCfg("qc_pendulum", joint_names=("trolley_joint",)), "pos_std": 0.5},
+    ),
+    "pendulum_anti_sway_reward": RewardTermCfg(
+      func=pendulum_anti_sway_reward,
+      weight=0.5,
+      params={"trolley_cfg": SceneEntityCfg("qc_pendulum", joint_names=("trolley_joint",)), "angle_std": 0.2},
     ),
     "trolley_vel_smoothness": RewardTermCfg(
       func=trolley_vel_smoothness,
@@ -474,7 +549,7 @@ def qc_pendulum_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     "trolley_out_of_bounds_penalty": RewardTermCfg(
       func=trolley_out_of_bounds_penalty,
       weight=1.0,
-      params={"trolley_cfg": SceneEntityCfg("qc_pendulum", joint_names=("trolley_joint",)), "min_pos": 0.0, "max_pos": 1.4},
+      params={"trolley_cfg": SceneEntityCfg("qc_pendulum", joint_names=("trolley_joint",)), "min_pos": -0.1, "max_pos": 1.5},
     ),
   }
 
@@ -482,7 +557,7 @@ def qc_pendulum_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     "time_out": TerminationTermCfg(func=time_out, time_out=True),
     "out_of_bounds": TerminationTermCfg(
       func=trolley_out_of_bounds,
-      params={"trolley_cfg": SceneEntityCfg("qc_pendulum", joint_names=("trolley_joint",)), "min_pos": 0.0, "max_pos": 1.4},
+      params={"trolley_cfg": SceneEntityCfg("qc_pendulum", joint_names=("trolley_joint",)), "min_pos": -0.1, "max_pos": 1.5},
     ),
   }
   
