@@ -1,0 +1,1 @@
+from mjlab.asset_zoo.robots.qc_anti_sway_alignment.qc_anti_sway_alignment_constants import get_qc_anti_sway_alignment_robot_cfg as get_qc_anti_sway_alignment_robot_cfg

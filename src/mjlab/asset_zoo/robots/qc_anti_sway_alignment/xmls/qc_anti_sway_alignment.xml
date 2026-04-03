@@ -1,0 +1,398 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mujoco model="qc_anti_sway_alignment">
+  <compiler angle="radian" meshdir="meshes" autolimits="true"/>
+  <option timestep="0.002" gravity="0 0 -9.81" wind="0 0 0" integrator="implicitfast" density="1.225" viscosity="1.8e-5"/>
+  <visual>
+    <global realtime="1"/>
+    <quality shadowsize="16384" numslices="28" offsamples="4"/>
+    <headlight diffuse="1 1 1" specular="0.5 0.5 0.5" active="1"/>
+    <rgba fog="1 0 0 1" haze="1 1 1 1"/>
+  </visual>
+  <asset>
+    <texture name="plane" type="2d" builtin="checker" rgb1=".1 .1 .1" rgb2=".9 .9 .9" width="512" height="512" mark="cross" markrgb=".8 .8 .8"/>
+    <material name="plane" reflectance="0.3" texture="plane" texrepeat="1 1" texuniform="true"/>
+    <material name="box" rgba="0 0.5 0 1" emission="0"/>
+    <!-- gantry -->
+    <mesh name="gantry - 8080-L1800-3_mesh" file="gantry - 8080-L1800-3.STL" scale="1 1 1"/>
+    <mesh name="gantry - 8080-L1800-1_mesh" file="gantry - 8080-L1800-1.STL" scale="1 1 1"/>
+    <mesh name="gantry - 8080-L1800-6_mesh" file="gantry - 8080-L1800-6.STL" scale="1 1 1"/>
+    <mesh name="gantry - 8080-L1800-12_mesh" file="gantry - 8080-L1800-12.STL" scale="1 1 1"/>
+    <mesh name="gantry - 8080-L1900-2_mesh" file="gantry - 8080-L1900-2.STL" scale="1 1 1"/>
+    <mesh name="gantry - 8080-L1800-9_mesh" file="gantry - 8080-L1800-9.STL" scale="1 1 1"/>
+    <mesh name="gantry - 8080-L1800-2_mesh" file="gantry - 8080-L1800-2.STL" scale="1 1 1"/>
+    <mesh name="gantry - 8080-L1900-1_mesh" file="gantry - 8080-L1900-1.STL" scale="1 1 1"/>
+    <mesh name="gantry - 8080-L1800-5_mesh" file="gantry - 8080-L1800-5.STL" scale="1 1 1"/>
+    <mesh name="gantry - 8080-L1900-3_mesh" file="gantry - 8080-L1900-3.STL" scale="1 1 1"/>
+    <mesh name="gantry - 8080-L1800-11_mesh" file="gantry - 8080-L1800-11.STL" scale="1 1 1"/>
+    <mesh name="gantry - 8080-L1900-4_mesh" file="gantry - 8080-L1900-4.STL" scale="1 1 1"/>
+    <mesh name="gantry - 8080-L1800-8_mesh" file="gantry - 8080-L1800-8.STL" scale="1 1 1"/>
+    <mesh name="gantry - 8080-L1800-4_mesh" file="gantry - 8080-L1800-4.STL" scale="1 1 1"/>
+    <mesh name="gantry - 8080-L1800-10_mesh" file="gantry - 8080-L1800-10.STL" scale="1 1 1"/>
+    <mesh name="gantry - 8080-L1800-7_mesh" file="gantry - 8080-L1800-7.STL" scale="1 1 1"/>
+    <!-- trolley -->
+    <mesh name="trolley - pulley-2_mesh" file="trolley - pulley-2.STL" scale="1 1 1"/>
+    <mesh name="trolley - trolley_plane-1_mesh" file="trolley - trolley_plane-1.STL" scale="1 1 1"/>
+    <mesh name="trolley - trolley_anchor_ball-2_mesh" file="trolley - trolley_anchor_ball-2.STL" scale="1 1 1"/>
+    <mesh name="trolley - pulley-6_mesh" file="trolley - pulley-6.STL" scale="1 1 1"/>
+    <mesh name="trolley - trolley_anchor_ball-3_mesh" file="trolley - trolley_anchor_ball-3.STL" scale="1 1 1"/>
+    <mesh name="trolley - trolley_anchor_ball-4_mesh" file="trolley - trolley_anchor_ball-4.STL" scale="1 1 1"/>
+    <mesh name="trolley - pulley-8_mesh" file="trolley - pulley-8.STL" scale="1 1 1"/>
+    <mesh name="trolley - pulley-4_mesh" file="trolley - pulley-4.STL" scale="1 1 1"/>
+    <mesh name="trolley - pulley-3_mesh" file="trolley - pulley-3.STL" scale="1 1 1"/>
+    <mesh name="trolley - pulley-1_mesh" file="trolley - pulley-1.STL" scale="1 1 1"/>
+    <mesh name="trolley - pulley-5_mesh" file="trolley - pulley-5.STL" scale="1 1 1"/>
+    <mesh name="trolley - pulley-7_mesh" file="trolley - pulley-7.STL" scale="1 1 1"/>
+    <mesh name="trolley - trolley_anchor_ball-1_mesh" file="trolley - trolley_anchor_ball-1.STL" scale="1 1 1"/>
+    <!-- spreader -->
+    <mesh name="spreader - spreader_plane-1_mesh" file="spreader - spreader_plane-1.STL" scale="1 1 1"/>
+    <mesh name="spreader - spreader_anchor_ball-1_mesh" file="spreader - spreader_anchor_ball-1.STL" scale="1 1 1"/>
+    <mesh name="spreader - spreader_anchor_ball-3_mesh" file="spreader - spreader_anchor_ball-3.STL" scale="1 1 1"/>
+    <mesh name="spreader - container-1_mesh" file="spreader - container-1.STL" scale="1 1 1"/>
+    <mesh name="spreader - spreader_anchor_ball-4_mesh" file="spreader - spreader_anchor_ball-4.STL" scale="1 1 1"/>
+    <mesh name="spreader - spreader_anchor_ball-2_mesh" file="spreader - spreader_anchor_ball-2.STL" scale="1 1 1"/>
+    <!-- container_stack -->
+    <mesh name="container_stack - L-Marker-26_mesh" file="container_stack - L-Marker-26.STL" scale="1 1 1"/>
+    <mesh name="container_stack - L-Marker-31_mesh" file="container_stack - L-Marker-31.STL" scale="1 1 1"/>
+    <mesh name="container_stack - L-Marker-1_mesh" file="container_stack - L-Marker-1.STL" scale="1 1 1"/>
+    <mesh name="container_stack - L-Marker-22_mesh" file="container_stack - L-Marker-22.STL" scale="1 1 1"/>
+    <mesh name="container_stack - L-Marker-24_mesh" file="container_stack - L-Marker-24.STL" scale="1 1 1"/>
+    <mesh name="container_stack - L-Marker-34_mesh" file="container_stack - L-Marker-34.STL" scale="1 1 1"/>
+    <mesh name="container_stack - container-8_mesh" file="container_stack - container-8.STL" scale="1 1 1"/>
+    <mesh name="container_stack - container-1_mesh" file="container_stack - container-1.STL" scale="1 1 1"/>
+    <mesh name="container_stack - container-10_mesh" file="container_stack - container-10.STL" scale="1 1 1"/>
+    <mesh name="container_stack - L-Marker-30_mesh" file="container_stack - L-Marker-30.STL" scale="1 1 1"/>
+    <mesh name="container_stack - container-3_mesh" file="container_stack - container-3.STL" scale="1 1 1"/>
+    <mesh name="container_stack - L-Marker-32_mesh" file="container_stack - L-Marker-32.STL" scale="1 1 1"/>
+    <mesh name="container_stack - L-Marker-35_mesh" file="container_stack - L-Marker-35.STL" scale="1 1 1"/>
+    <mesh name="container_stack - L-Marker-27_mesh" file="container_stack - L-Marker-27.STL" scale="1 1 1"/>
+    <mesh name="container_stack - container-9_mesh" file="container_stack - container-9.STL" scale="1 1 1"/>
+    <mesh name="container_stack - L-Marker-4_mesh" file="container_stack - L-Marker-4.STL" scale="1 1 1"/>
+    <mesh name="container_stack - container-2_mesh" file="container_stack - container-2.STL" scale="1 1 1"/>
+    <mesh name="container_stack - container-7_mesh" file="container_stack - container-7.STL" scale="1 1 1"/>
+    <mesh name="container_stack - L-Marker-36_mesh" file="container_stack - L-Marker-36.STL" scale="1 1 1"/>
+    <mesh name="container_stack - L-Marker-28_mesh" file="container_stack - L-Marker-28.STL" scale="1 1 1"/>
+    <mesh name="container_stack - L-Marker-23_mesh" file="container_stack - L-Marker-23.STL" scale="1 1 1"/>
+    <mesh name="container_stack - container-4_mesh" file="container_stack - container-4.STL" scale="1 1 1"/>
+    <mesh name="container_stack - L-Marker-29_mesh" file="container_stack - L-Marker-29.STL" scale="1 1 1"/>
+    <mesh name="container_stack - L-Marker-33_mesh" file="container_stack - L-Marker-33.STL" scale="1 1 1"/>
+    <mesh name="container_stack - L-Marker-25_mesh" file="container_stack - L-Marker-25.STL" scale="1 1 1"/>
+    <mesh name="container_stack - L-Marker-3_mesh" file="container_stack - L-Marker-3.STL" scale="1 1 1"/>
+    <mesh name="container_stack - L-Marker-2_mesh" file="container_stack - L-Marker-2.STL" scale="1 1 1"/>
+    <mesh name="container_stack - container-5_mesh" file="container_stack - container-5.STL" scale="1 1 1"/>
+    <mesh name="container_stack - L-Marker-21_mesh" file="container_stack - L-Marker-21.STL" scale="1 1 1"/>
+    <mesh name="container_stack - container-6_mesh" file="container_stack - container-6.STL" scale="1 1 1"/>
+  </asset>
+  <default>
+    <geom solref=".5e-4" solimp="0.9 0.99 1e-4" fluidcoef="0.5 0.25 0.5 2.0 1.0"/>
+    <default class="card">
+      <geom type="mesh" mesh="card" mass="1.84e-4" fluidshape="ellipsoid" contype="0" conaffinity="0"/>
+    </default>
+    <default class="collision">
+      <geom type="box" mass="0" size="0.047 0.032 .00035" group="3" friction=".1"/>
+    </default>
+  </default>
+  <worldbody>
+    <geom name="floor" pos="0 0 0" size="10 10 .1" type="plane" material="plane" condim="3"/>
+    <light directional="true" ambient=".3 .3 .3" pos="30 30 30" dir="0 -2 -1" diffuse=".5 .5 .5" specular=".5 .5 .5"/>
+    <body name="gantry" pos="0 0 0">
+      <body name="part_00_gantry - 8080-L1800-3" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_00_gantry - 8080-L1800-3" type="mesh" mesh="gantry - 8080-L1800-3_mesh" pos="0 0 0" mass="8.20643687132272" rgba="0 0 0.5 1"/>
+      </body>
+      <body name="part_01_gantry - 8080-L1800-1" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_01_gantry - 8080-L1800-1" type="mesh" mesh="gantry - 8080-L1800-1_mesh" pos="0 0 0" mass="8.206436440465545" rgba="0 0 0.5 1"/>
+      </body>
+      <body name="part_02_gantry - 8080-L1800-6" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_02_gantry - 8080-L1800-6" type="mesh" mesh="gantry - 8080-L1800-6_mesh" pos="0 0 0" mass="8.206435252381262" rgba="0 0 0.5 1"/>
+      </body>
+      <body name="part_03_gantry - 8080-L1800-12" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_03_gantry - 8080-L1800-12" type="mesh" mesh="gantry - 8080-L1800-12_mesh" pos="0 0 0" mass="8.206435837031654" rgba="0 0 0.5 1"/>
+      </body>
+      <body name="part_04_gantry - 8080-L1900-2" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_04_gantry - 8080-L1900-2" type="mesh" mesh="gantry - 8080-L1900-2_mesh" pos="0 0 0" mass="8.662366448847159" rgba="0 0 0.5 1"/>
+      </body>
+      <body name="part_05_gantry - 8080-L1800-9" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_05_gantry - 8080-L1800-9" type="mesh" mesh="gantry - 8080-L1800-9_mesh" pos="0 0 0" mass="8.206435406205692" rgba="0 0 0.5 1"/>
+      </body>
+      <body name="part_06_gantry - 8080-L1800-2" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_06_gantry - 8080-L1800-2" type="mesh" mesh="gantry - 8080-L1800-2_mesh" pos="0 0 0" mass="8.20643687132272" rgba="0 0 0.5 1"/>
+      </body>
+      <body name="part_07_gantry - 8080-L1900-1" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_07_gantry - 8080-L1900-1" type="mesh" mesh="gantry - 8080-L1900-1_mesh" pos="0 0 0" mass="8.662366448847159" rgba="0 0 0.5 1"/>
+      </body>
+      <body name="part_08_gantry - 8080-L1800-5" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_08_gantry - 8080-L1800-5" type="mesh" mesh="gantry - 8080-L1800-5_mesh" pos="0 0 0" mass="8.206434821520842" rgba="0 0 0.5 1"/>
+      </body>
+      <body name="part_09_gantry - 8080-L1900-3" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_09_gantry - 8080-L1900-3" type="mesh" mesh="gantry - 8080-L1900-3_mesh" pos="0 0 0" mass="8.662366448847159" rgba="0 0 0.5 1"/>
+      </body>
+      <body name="part_10_gantry - 8080-L1800-11" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_10_gantry - 8080-L1800-11" type="mesh" mesh="gantry - 8080-L1800-11_mesh" pos="0 0 0" mass="8.206435406205692" rgba="0 0 0.5 1"/>
+      </body>
+      <body name="part_11_gantry - 8080-L1900-4" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_11_gantry - 8080-L1900-4" type="mesh" mesh="gantry - 8080-L1900-4_mesh" pos="0 0 0" mass="8.662366448847159" rgba="0 0 0.5 1"/>
+      </body>
+      <body name="part_12_gantry - 8080-L1800-8" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_12_gantry - 8080-L1800-8" type="mesh" mesh="gantry - 8080-L1800-8_mesh" pos="0 0 0" mass="8.206435252381262" rgba="0 0 0.5 1"/>
+      </body>
+      <body name="part_13_gantry - 8080-L1800-4" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_13_gantry - 8080-L1800-4" type="mesh" mesh="gantry - 8080-L1800-4_mesh" pos="0 0 0" mass="8.206436440465545" rgba="0 0 0.5 1"/>
+      </body>
+      <body name="part_14_gantry - 8080-L1800-10" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_14_gantry - 8080-L1800-10" type="mesh" mesh="gantry - 8080-L1800-10_mesh" pos="0 0 0" mass="8.206435837031654" rgba="0 0 0.5 1"/>
+      </body>
+      <body name="part_15_gantry - 8080-L1800-7" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_15_gantry - 8080-L1800-7" type="mesh" mesh="gantry - 8080-L1800-7_mesh" pos="0 0 0" mass="8.206434821520842" rgba="0 0 0.5 1"/>
+      </body>
+      <body name="trolley" pos="0 -0.7 1.9">
+        <joint type="slide" name="trolley_joint" pos="0 0 0" axis="0 1 0" damping="0.2" frictionloss="0" stiffness="0" range="-0.08 1.48"/>
+        <body name="part_00_trolley - pulley-2" pos="0 0 0" euler="0 0 0">
+          <geom name="geom_00_trolley - pulley-2" type="mesh" mesh="trolley - pulley-2_mesh" pos="0 0 0" mass="0.027111797859617568" rgba="0.5 0.5 0 1"/>
+        </body>
+        <body name="part_01_trolley - trolley_plane-1" pos="0 0 0" euler="0 0 0">
+          <geom name="geom_01_trolley - trolley_plane-1" type="mesh" mesh="trolley - trolley_plane-1_mesh" pos="0 0 0" mass="28.76275760652507" rgba="0.5 0 0 1"/>
+        </body>
+        <body name="part_02_trolley - trolley_anchor_ball-2" pos="0 0 0" euler="0 0 0">
+          <geom name="geom_02_trolley - trolley_anchor_ball-2" type="mesh" mesh="trolley - trolley_anchor_ball-2_mesh" pos="0 0 0" mass="0.0014100498050014054" rgba="0.5 0 0 1"/>
+        </body>
+
+        <body name="part_04_trolley - trolley_anchor_ball-3" pos="0 0 0" euler="0 0 0">
+          <geom name="geom_04_trolley - trolley_anchor_ball-3" type="mesh" mesh="trolley - trolley_anchor_ball-3_mesh" pos="0 0 0" mass="0.0014100497818406016" rgba="0.5 0 0 1"/>
+        </body>
+        <body name="part_05_trolley - trolley_anchor_ball-4" pos="0 0 0" euler="0 0 0">
+          <geom name="geom_05_trolley - trolley_anchor_ball-4" type="mesh" mesh="trolley - trolley_anchor_ball-4_mesh" pos="0 0 0" mass="0.001410049782437572" rgba="0.5 0 0 1"/>
+        </body>
+
+        <body name="part_07_trolley - pulley-4" pos="0 0 0" euler="0 0 0">
+          <geom name="geom_07_trolley - pulley-4" type="mesh" mesh="trolley - pulley-4_mesh" pos="0 0 0" mass="0.027111794590652136" rgba="0.5 0.5 0 1"/>
+        </body>
+        <body name="part_08_trolley - pulley-3" pos="0 0 0" euler="0 0 0">
+          <geom name="geom_08_trolley - pulley-3" type="mesh" mesh="trolley - pulley-3_mesh" pos="0 0 0" mass="0.027111794594472015" rgba="0.5 0.5 0 1"/>
+        </body>
+        <body name="part_09_trolley - pulley-1" pos="0 0 0" euler="0 0 0">
+          <geom name="geom_09_trolley - pulley-1" type="mesh" mesh="trolley - pulley-1_mesh" pos="0 0 0" mass="0.027111797863437353" rgba="0.5 0.5 0 1"/>
+        </body>
+
+        <body name="part_12_trolley - trolley_anchor_ball-1" pos="0 0 0" euler="0 0 0">
+          <geom name="geom_12_trolley - trolley_anchor_ball-1" type="mesh" mesh="trolley - trolley_anchor_ball-1_mesh" pos="0 0 0" mass="0.0014100498021130147" rgba="0.5 0 0 1"/>
+        </body>
+
+        <body name="hoist" pos="0 0 0" euler="0 0 0">
+          <!-- <joint type="slide" name="hoist_joint" pos="0 0 0" axis="-1 0 0" damping="0.4" frictionloss="0.015" stiffness="0" range="0 0.8"/> -->
+            
+            <body name="part_03_trolley - pulley-6" pos="0 0 0" euler="0 0 0">
+                <geom name="geom_03_trolley - pulley-6" type="mesh" mesh="trolley - pulley-6_mesh" pos="0 0 0" mass="0.02711179618761414" rgba="0.5 0.5 0.5 1"/>
+            </body>
+            <site name="anchor_pm_4_0" pos="0.698 0.035 0.102" size="0.006"
+                rgba="1 0.5 0.8 0.5" />
+            <site name="anchor_pm_4_1" pos="0.698 0.035 0.126" size="0.006"
+                rgba="1 0.5 0.8 0.5" />
+
+            <body name="part_06_trolley - pulley-8" pos="0 0 0" euler="0 0 0">
+                <geom name="geom_06_trolley - pulley-8" type="mesh" mesh="trolley - pulley-8_mesh" pos="0 0 0" mass="0.02711179284545186" rgba="0.5 0.5 0.5 1"/>
+            </body>
+            <site name="anchor_pm_1_0" pos="0.438 0.035 0.042" size="0.006"
+                rgba="1 0.5 0.8 0.5" />
+            <site name="anchor_pm_1_1" pos="0.438 0.035 0.066" size="0.006"
+                rgba="1 0.5 0.8 0.5" />
+
+            <body name="part_10_trolley - pulley-5" pos="0 0 0" euler="0 0 0">
+                <geom name="geom_10_trolley - pulley-5" type="mesh" mesh="trolley - pulley-5_mesh" pos="0 0 0" mass="0.027111796191433887" rgba="0.5 0.5 0.5 1"/>
+            </body>
+            <site name="anchor_pm_3_0" pos="0.698 -0.035 0.102" size="0.006"
+                rgba="1 0.5 0.8 0.5" />
+            <site name="anchor_pm_3_1" pos="0.698 -0.035 0.126" size="0.006"
+                rgba="1 0.5 0.8 0.5" />
+
+            <body name="part_11_trolley - pulley-7" pos="0 0 0" euler="0 0 0">
+                <geom name="geom_11_trolley - pulley-7" type="mesh" mesh="trolley - pulley-7_mesh" pos="0 0 0" mass="0.02711179284927182" rgba="0.5 0.5 0.5 1"/>
+            </body>
+            <site name="anchor_pm_2_0" pos="0.438 -0.035 0.042" size="0.006"
+                rgba="1 0.5 0.8 0.5" />
+            <site name="anchor_pm_2_1" pos="0.438 -0.035 0.066" size="0.006"
+                rgba="1 0.5 0.8 0.5" />
+        </body>
+        <site name="anchor_drum_1" pos="0.48 0.035 0.066" size="0.008" rgba="0 1.0 0.8 0.5" />
+        <site name="anchor_drum_2" pos="0.48 -0.035 0.066" size="0.008" rgba="0 1.0 0.8 0.5" />
+        <site name="anchor_drum_3" pos="0.74 -0.035 0.126" size="0.008" rgba="0 1.0 0.8 0.5" />
+        <site name="anchor_drum_4" pos="0.74 0.035 0.126" size="0.008" rgba="0 1.0 0.8 0.5" />
+
+        <site name="anchor_ps_1" pos="0.48 0.035 0.042" size="0.008" rgba="0 1.0 0.8 0.5" />
+        <site name="anchor_ps_2" pos="0.48 -0.035 0.042" size="0.008" rgba="0 1.0 0.8 0.5" />
+        <site name="anchor_ps_3" pos="0.74 -0.035 0.102" size="0.008" rgba="0 1.0 0.8 0.5" />
+        <site name="anchor_ps_4" pos="0.74 0.035 0.102" size="0.008" rgba="0 1.0 0.8 0.5" />
+
+        <site name="trolley_center" pos="0.61 0.0 0.0" size="0.03" rgba="1.0 0.0 0.8 0.5" />
+
+      </body>
+    </body>
+
+
+    <body name="spreader" pos="0.61 -0.7 0.915">
+      <freejoint name="spreader_freejoint"/>
+      <body name="part_00_spreader - spreader_plane-1" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_00_spreader - spreader_plane-1" type="mesh" mesh="spreader - spreader_plane-1_mesh" pos="0 0 0" mass="0.8539416257786026" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_01_spreader - spreader_anchor_ball-1" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_01_spreader - spreader_anchor_ball-1" type="mesh" mesh="spreader - spreader_anchor_ball-1_mesh" pos="0 0 0" mass="9.024319406345237e-05" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_02_spreader - spreader_anchor_ball-3" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_02_spreader - spreader_anchor_ball-3" type="mesh" mesh="spreader - spreader_anchor_ball-3_mesh" pos="0 0 0" mass="9.024319406345241e-05" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_03_spreader - container-1" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_03_spreader - container-1" type="mesh" mesh="spreader - container-1_mesh" pos="0 0 0" mass="8.027424632463292" rgba="0 0.5 0.5 1"/>
+      </body>
+      <body name="part_04_spreader - spreader_anchor_ball-4" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_04_spreader - spreader_anchor_ball-4" type="mesh" mesh="spreader - spreader_anchor_ball-4_mesh" pos="0 0 0" mass="9.024319406345237e-05" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_05_spreader - spreader_anchor_ball-2" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_05_spreader - spreader_anchor_ball-2" type="mesh" mesh="spreader - spreader_anchor_ball-2_mesh" pos="0 0 0" mass="9.024319406345241e-05" rgba="0.5 0.5 0 1"/>
+      </body>
+      <site name="anchor_spreader_4" pos="0.13 0.035 0.002" size="0.008" rgba="0 1.0 0.8 0.5"/>
+      <site name="anchor_spreader_3" pos="0.13 -0.035 0.002" size="0.008" rgba="0 1.0 0.8 0.5"/>
+      <site name="anchor_spreader_2" pos="-0.13 -0.035 0.002" size="0.008" rgba="0 1.0 0.8 0.5"/>
+      <site name="anchor_spreader_1" pos="-0.13 0.035 0.002" size="0.008" rgba="0 1.0 0.8 0.5"/>
+      <site name="spreader_center" pos="0 0 0.002" size="0.008" rgba="1.0 0.0 0.8 0.5"/>
+    </body>
+
+
+    <body name="container_stack" pos="0.76 0.58 0" euler="0 0 3.1415">
+      <body name="part_00_container_stack - L-Marker-26" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_00_container_stack - L-Marker-26" type="mesh" mesh="container_stack - L-Marker-26_mesh" pos="0 0 0" mass="0.004859995789099179" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_01_container_stack - L-Marker-31" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_01_container_stack - L-Marker-31" type="mesh" mesh="container_stack - L-Marker-31_mesh" pos="0 0 0" mass="0.004859995789099234" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_02_container_stack - L-Marker-1" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_02_container_stack - L-Marker-1" type="mesh" mesh="container_stack - L-Marker-1_mesh" pos="0 0 0" mass="0.0048599996112472605" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_03_container_stack - L-Marker-22" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_03_container_stack - L-Marker-22" type="mesh" mesh="container_stack - L-Marker-22_mesh" pos="0 0 0" mass="0.0048599971972590455" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_04_container_stack - L-Marker-24" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_04_container_stack - L-Marker-24" type="mesh" mesh="container_stack - L-Marker-24_mesh" pos="0 0 0" mass="0.0048600116811887235" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_05_container_stack - L-Marker-34" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_05_container_stack - L-Marker-34" type="mesh" mesh="container_stack - L-Marker-34_mesh" pos="0 0 0" mass="0.004859998806584494" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_06_container_stack - container-8" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_06_container_stack - container-8" type="mesh" mesh="container_stack - container-8_mesh" pos="0 0 0" mass="8.027424102633104" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_07_container_stack - container-1" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_07_container_stack - container-1" type="mesh" mesh="container_stack - container-1_mesh" pos="0 0 0" mass="8.02742485145226" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_08_container_stack - container-10" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_08_container_stack - container-10" type="mesh" mesh="container_stack - container-10_mesh" pos="0 0 0" mass="8.027424102633104" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_09_container_stack - L-Marker-30" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_09_container_stack - L-Marker-30" type="mesh" mesh="container_stack - L-Marker-30_mesh" pos="0 0 0" mass="0.004859994179775256" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_10_container_stack - container-3" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_10_container_stack - container-3" type="mesh" mesh="container_stack - container-3_mesh" pos="0 0 0" mass="8.027424190019461" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_11_container_stack - L-Marker-32" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_11_container_stack - L-Marker-32" type="mesh" mesh="container_stack - L-Marker-32_mesh" pos="0 0 0" mass="0.004860008663700436" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_12_container_stack - L-Marker-35" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_12_container_stack - L-Marker-35" type="mesh" mesh="container_stack - L-Marker-35_mesh" pos="0 0 0" mass="0.004859997197259063" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_13_container_stack - L-Marker-27" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_13_container_stack - L-Marker-27" type="mesh" mesh="container_stack - L-Marker-27_mesh" pos="0 0 0" mass="0.00485999417977525" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_14_container_stack - container-9" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_14_container_stack - container-9" type="mesh" mesh="container_stack - container-9_mesh" pos="0 0 0" mass="8.027424706130132" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_15_container_stack - L-Marker-4" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_15_container_stack - L-Marker-4" type="mesh" mesh="container_stack - L-Marker-4_mesh" pos="0 0 0" mass="0.004859997197259108" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_16_container_stack - container-2" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_16_container_stack - container-2" type="mesh" mesh="container_stack - container-2_mesh" pos="0 0 0" mass="8.027424190019461" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_17_container_stack - container-7" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_17_container_stack - container-7" type="mesh" mesh="container_stack - container-7_mesh" pos="0 0 0" mass="8.027424160568817" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_18_container_stack - L-Marker-36" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_18_container_stack - L-Marker-36" type="mesh" mesh="container_stack - L-Marker-36_mesh" pos="0 0 0" mass="0.004859998806584528" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_19_container_stack - L-Marker-28" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_19_container_stack - L-Marker-28" type="mesh" mesh="container_stack - L-Marker-28_mesh" pos="0 0 0" mass="0.004859995789099215" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_20_container_stack - L-Marker-23" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_20_container_stack - L-Marker-23" type="mesh" mesh="container_stack - L-Marker-23_mesh" pos="0 0 0" mass="0.004859998806584513" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_21_container_stack - container-4" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_21_container_stack - container-4" type="mesh" mesh="container_stack - container-4_mesh" pos="0 0 0" mass="8.027426604007774" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_22_container_stack - L-Marker-29" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_22_container_stack - L-Marker-29" type="mesh" mesh="container_stack - L-Marker-29_mesh" pos="0 0 0" mass="0.004860002226399804" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_23_container_stack - L-Marker-33" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_23_container_stack - L-Marker-33" type="mesh" mesh="container_stack - L-Marker-33_mesh" pos="0 0 0" mass="0.004860002025235525" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_24_container_stack - L-Marker-25" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_24_container_stack - L-Marker-25" type="mesh" mesh="container_stack - L-Marker-25_mesh" pos="0 0 0" mass="0.0048599990077494515" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_25_container_stack - L-Marker-3" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_25_container_stack - L-Marker-3" type="mesh" mesh="container_stack - L-Marker-3_mesh" pos="0 0 0" mass="0.004860000214744324" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_26_container_stack - L-Marker-2" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_26_container_stack - L-Marker-2" type="mesh" mesh="container_stack - L-Marker-2_mesh" pos="0 0 0" mass="0.004859996593762344" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_27_container_stack - container-5" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_27_container_stack - container-5" type="mesh" mesh="container_stack - container-5_mesh" pos="0 0 0" mass="8.027424764065895" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_28_container_stack - L-Marker-21" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_28_container_stack - L-Marker-21" type="mesh" mesh="container_stack - L-Marker-21_mesh" pos="0 0 0" mass="0.004860005243886576" rgba="0.5 0.5 0 1"/>
+      </body>
+      <body name="part_29_container_stack - container-6" pos="0 0 0" euler="0 0 0">
+        <geom name="geom_29_container_stack - container-6" type="mesh" mesh="container_stack - container-6_mesh" pos="0 0 0" mass="8.027425367562971" rgba="0.5 0.5 0 1"/>
+      </body>
+    </body>
+  </worldbody>
+
+  <equality>
+        <tendon tendon1="tendon1" polycoef="0 1 0 0 0" />
+        <tendon tendon1="tendon2" polycoef="0 1 0 0 0" />
+        <tendon tendon1="tendon3" polycoef="0 1 0 0 0" />
+        <tendon tendon1="tendon4" polycoef="0 1 0 0 0" />
+  </equality>
+
+    <tendon>
+        <spatial name="tendon1" width="0.004" rgba="0.95 0.3 0.3 1">
+            <site site="anchor_drum_1" />
+            <site site="anchor_pm_1_1" />
+            <site site="anchor_pm_1_0" />
+            <site site="anchor_ps_1" />
+            <site site="anchor_spreader_1" />
+        </spatial>
+
+        <spatial name="tendon2" width="0.004" rgba="0.95 0.3 0.3 1">
+            <site site="anchor_drum_2" />
+            <site site="anchor_pm_2_1" />
+            <site site="anchor_pm_2_0" />
+            <site site="anchor_ps_2" />
+            <site site="anchor_spreader_2" />
+        </spatial>
+
+        <spatial name="tendon3" width="0.004" rgba="0.95 0.3 0.3 1">
+            <site site="anchor_drum_3" />
+            <site site="anchor_pm_3_1" />
+            <site site="anchor_pm_3_0" />
+            <site site="anchor_ps_3" />
+            <site site="anchor_spreader_3" />
+        </spatial>
+
+        <spatial name="tendon4" width="0.004" rgba="0.95 0.3 0.3 1">
+            <site site="anchor_drum_4" />
+            <site site="anchor_pm_4_1" />
+            <site site="anchor_pm_4_0" />
+            <site site="anchor_ps_4" />
+            <site site="anchor_spreader_4" />
+        </spatial>
+    </tendon>
+
+
+    <actuator>
+      <position name="trolley_driver" kp="900" kv="50" joint="trolley_joint" ctrlrange="-0.08 1.48" />
+      <!-- <position name="hoist_driver" kp="20000" kv="20" joint="hoist_joint" ctrlrange="0 0.8" /> -->
+    </actuator>
+</mujoco>

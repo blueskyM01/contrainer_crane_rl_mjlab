@@ -1,11 +1,12 @@
 """Script to play RL agent with RSL-RL."""
 
+import math
 import os
 import sys
 from dataclasses import asdict, dataclass
 from collections import deque
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -47,7 +48,7 @@ class PlayConfig:
 
   # Task-specific parameters
   trolley_target: float | str | None = None
-  """Target for qc_pendulum trolley: fixed value or CSV path (step,value)."""
+  """Target for trolley tasks: fixed value or CSV path (step,value)."""
 
   plot_state_action_curve: bool = False
   """Display trolley/pendulum state and action curves during play (env 0)."""
@@ -57,6 +58,12 @@ class PlayConfig:
   """Number of recent steps to keep in the live plot window."""
   trolley_output_dir: str | None = None
   """Optional output directory for state/action curves. Defaults under run log dir or local outputs/."""
+  action_ema_alpha: float = 0.0
+  """EMA smoothing coefficient for actions during play (0=disabled, 0→1 = more smoothing).
+
+  Applied as: a_smooth[t] = (1-alpha)*a_raw[t] + alpha*a_smooth[t-1].
+  Typical values: 0.5 (mild), 0.8 (strong).
+  """
 
   # Internal flag used by demo script.
   _demo_mode: tyro.conf.Suppress[bool] = False
@@ -65,14 +72,17 @@ class PlayConfig:
 def run_play(task_id: str, cfg: PlayConfig):
   configure_torch_backends()
 
-  supports_trolley_curves = task_id == "Mjlab-QcPendulum"
+  supports_trolley_curves = task_id in {
+    "Mjlab-QcPendulum",
+    "Mjlab-QcAntiSwayAlignment",
+  }
   if (
     (cfg.plot_state_action_curve or cfg.save_state_action_curve)
     and not supports_trolley_curves
   ):
     raise ValueError(
-      "State/action curve plotting/saving is only supported for the "
-      "Mjlab-QcPendulum task."
+      "State/action curve plotting/saving is only supported for trolley tasks: "
+      "Mjlab-QcPendulum and Mjlab-QcAntiSwayAlignment."
     )
 
   device = cfg.device or ("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -81,10 +91,13 @@ def run_play(task_id: str, cfg: PlayConfig):
   agent_cfg = load_rl_cfg(task_id)
 
   trolley_curve_values_np: np.ndarray | None = None
+  # Both trolley tasks use the same command key in env_cfg.
+  trolley_command_name = "trolley_target"
 
   # Handle task-specific parameters
-  if task_id == "Mjlab-QcPendulum" and cfg.trolley_target is not None:
-    if "trolley_target" in env_cfg.commands:
+  if supports_trolley_curves and cfg.trolley_target is not None:
+    if trolley_command_name in env_cfg.commands:
+      trolley_command_cfg: Any = env_cfg.commands[trolley_command_name]
       parsed_target_value: float | None = None
       parsed_target_curve_path: Path | None = None
 
@@ -126,16 +139,16 @@ def run_play(task_id: str, cfg: PlayConfig):
           )
 
         first_target = float(trolley_curve_values_np[0])
-        env_cfg.commands["trolley_target"].initial_target = first_target
-        env_cfg.commands["trolley_target"].mode = "fixed"
+        setattr(trolley_command_cfg, "initial_target", first_target)
+        setattr(trolley_command_cfg, "mode", "fixed")
         print(
           "[INFO]: Set trolley target from curve: "
           f"{parsed_target_curve_path} ({trolley_curve_values_np.size} steps)"
         )
       else:
         assert parsed_target_value is not None
-        env_cfg.commands["trolley_target"].initial_target = parsed_target_value
-        env_cfg.commands["trolley_target"].mode = "fixed"
+        setattr(trolley_command_cfg, "initial_target", parsed_target_value)
+        setattr(trolley_command_cfg, "mode", "fixed")
         print(f"[INFO]: Set trolley target to {parsed_target_value} (fixed mode)")
 
   DUMMY_MODE = cfg.agent in {"zero", "random"}
@@ -307,8 +320,8 @@ def run_play(task_id: str, cfg: PlayConfig):
     pos_line = trolley_plot_axes[0].plot([], [], label="trolley_pos", color="tab:blue")[0]
     vel_line = trolley_plot_axes[1].plot([], [], label="trolley_vel", color="tab:orange")[0]
     acc_line = trolley_plot_axes[2].plot([], [], label="trolley_acc", color="tab:green")[0]
-    angle_line = trolley_plot_axes[3].plot([], [], label="pendulum_angle_deg", color="tab:red")[0]
-    trolley_plot_lines = (pos_line, vel_line, acc_line, angle_line)
+    sway_line = trolley_plot_axes[3].plot([], [], label="sway_angle", color="tab:purple")[0]
+    trolley_plot_lines = (pos_line, vel_line, acc_line, sway_line)
     action_plot_lines = [
       action_plot_ax.plot([], [], label=f"a{i}")[0] for i in range(num_actions)
     ]
@@ -317,8 +330,7 @@ def run_play(task_id: str, cfg: PlayConfig):
     trolley_plot_axes[0].set_ylabel("Position")
     trolley_plot_axes[1].set_ylabel("Velocity")
     trolley_plot_axes[2].set_ylabel("Acceleration")
-    trolley_plot_axes[3].set_ylabel("Angle (deg)")
-    trolley_plot_axes[3].set_xlabel("Step")
+    trolley_plot_axes[3].set_ylabel("Sway Angle (deg)")
     action_plot_ax.set_ylabel("Action")
     action_plot_ax.set_xlabel("Step")
     action_plot_ax.legend(loc="upper right")
@@ -332,25 +344,40 @@ def run_play(task_id: str, cfg: PlayConfig):
 
   trolley_asset = None
   trolley_joint_idx = None
-  trolley_target_term = None
+  trolley_target_term: Any | None = None
   trolley_curve_values: torch.Tensor | None = None
   trolley_curve_step_count: int | None = None
   if supports_trolley_curves:
     base_env = env.unwrapped
-    trolley_asset = base_env.scene["qc_pendulum"]
+    trolley_entity_name = (
+      "qc_pendulum" if task_id == "Mjlab-QcPendulum" else "qc_anti_sway_alignment"
+    )
+    trolley_asset = base_env.scene[trolley_entity_name]
     trolley_joint_idx = trolley_asset.find_joints("trolley_joint")[0][0]
+    sway_trolley_site_idx: int | None = None
+    sway_spreader_site_idx: int | None = None
+    if task_id == "Mjlab-QcAntiSwayAlignment":
+      _site_names = list(trolley_asset.site_names)
+      if "trolley_center" in _site_names and "spreader_center" in _site_names:
+        sway_trolley_site_idx = _site_names.index("trolley_center")
+        sway_spreader_site_idx = _site_names.index("spreader_center")
     if (
       trolley_curve_values_np is not None
       and base_env.command_manager is not None
-      and "trolley_target" in base_env.command_manager.active_terms
+      and trolley_command_name in base_env.command_manager.active_terms
     ):
-      trolley_target_term = base_env.command_manager.get_term("trolley_target")
+      trolley_target_term = base_env.command_manager.get_term(trolley_command_name)
       trolley_curve_values = torch.as_tensor(
         trolley_curve_values_np, device=base_env.device, dtype=torch.float32
       )
       trolley_curve_step_count = int(trolley_curve_values.shape[0])
       # Ensure the first command is in place before stepping.
-      trolley_target_term.target_pos[:] = trolley_curve_values[0]
+      target_pos = getattr(trolley_target_term, "target_pos", None)
+      if target_pos is not None:
+        target_pos[:] = trolley_curve_values[0]
+      desired_target_pos = getattr(trolley_target_term, "desired_target_pos", None)
+      if desired_target_pos is not None:
+        desired_target_pos[:] = trolley_curve_values[0]
 
   class PolicyWithPlaybackTracking:
     def __init__(self, wrapped_policy):
@@ -358,6 +385,7 @@ def run_play(task_id: str, cfg: PlayConfig):
       self.update_every = 5
       self.call_count = 0
       self.curve_step_idx = 0
+      self._ema_actions: torch.Tensor | None = None
 
     def __call__(self, obs) -> torch.Tensor:
       if (
@@ -366,10 +394,26 @@ def run_play(task_id: str, cfg: PlayConfig):
         and trolley_curve_step_count is not None
         and self.curve_step_idx < trolley_curve_step_count
       ):
-        trolley_target_term.target_pos[:] = trolley_curve_values[self.curve_step_idx]
+        target_pos = getattr(trolley_target_term, "target_pos", None)
+        if target_pos is not None:
+          target_pos[:] = trolley_curve_values[self.curve_step_idx]
+        desired_target_pos = getattr(trolley_target_term, "desired_target_pos", None)
+        if desired_target_pos is not None:
+          desired_target_pos[:] = trolley_curve_values[self.curve_step_idx]
         self.curve_step_idx += 1
 
-      actions = self.wrapped_policy(obs)
+      raw_actions = self.wrapped_policy(obs)
+      if cfg.action_ema_alpha > 0.0:
+        if self._ema_actions is None:
+          self._ema_actions = raw_actions.clone()
+        else:
+          self._ema_actions = (
+            (1.0 - cfg.action_ema_alpha) * raw_actions
+            + cfg.action_ema_alpha * self._ema_actions
+          )
+        actions = self._ema_actions
+      else:
+        actions = raw_actions
       action_env0 = actions[0].detach().float().cpu().flatten().tolist()
       recorded_actions.append(action_env0)
 
@@ -380,17 +424,16 @@ def run_play(task_id: str, cfg: PlayConfig):
         trolley_pos = float(trolley_asset.data.joint_pos[0, trolley_joint_idx].item())
         trolley_vel = float(trolley_asset.data.joint_vel[0, trolley_joint_idx].item())
         trolley_acc = float(trolley_asset.data.joint_acc[0, trolley_joint_idx].item())
-        # Compute pendulum angle in Y-Z plane relative to vertical downward direction.
-        # 0 deg means ball is directly below trolley anchor; negative is -Y side.
-        ball_q_adr = trolley_asset.data.indexing.free_joint_q_adr
-        ball_y = float(trolley_asset.data.data.qpos[0, ball_q_adr[1]].item())
-        ball_z = float(trolley_asset.data.data.qpos[0, ball_q_adr[2]].item())
-        anchor_y = -0.7 + trolley_pos
-        anchor_z = 1.9
-        dy = ball_y - anchor_y
-        dz = anchor_z - ball_z
-        pendulum_angle_deg = float(np.degrees(np.arctan2(dy, dz)))
-        trolley_history.append((trolley_pos, trolley_vel, trolley_acc, pendulum_angle_deg))
+        if sway_trolley_site_idx is not None and sway_spreader_site_idx is not None:
+          t_s = trolley_asset.data.site_pos_w[0, sway_trolley_site_idx]
+          sp_s = trolley_asset.data.site_pos_w[0, sway_spreader_site_idx]
+          sway_angle = math.degrees(math.atan2(
+            float((sp_s[1] - t_s[1]).item()),
+            float((t_s[2] - sp_s[2]).item()),
+          ))
+        else:
+          sway_angle = 0.0
+        trolley_history.append((trolley_pos, trolley_vel, trolley_acc, sway_angle))
 
       self.call_count += 1
       if (
@@ -504,7 +547,7 @@ def run_play(task_id: str, cfg: PlayConfig):
         (np.arange(n, dtype=np.int32), trolley_array, action_array, ref_aligned)
       )
       header = (
-        f"step,trolley_pos,trolley_vel,trolley_acc,pendulum_angle_deg,"
+        f"step,trolley_pos,trolley_vel,trolley_acc,spreader_sway_angle_deg,"
         f"{action_header},target_pos"
       )
     else:
@@ -512,13 +555,16 @@ def run_play(task_id: str, cfg: PlayConfig):
         (np.arange(n, dtype=np.int32), trolley_array, action_array)
       )
       header = (
-        f"step,trolley_pos,trolley_vel,trolley_acc,pendulum_angle_deg,"
+        f"step,trolley_pos,trolley_vel,trolley_acc,spreader_sway_angle_deg,"
         f"{action_header}"
       )
+    # Save with fixed-width 4-decimal formatting for easier visual alignment.
+    csv_fmt = ["%10.4f"] * int(csv_data.shape[1])
     np.savetxt(
       str(data_path),
       csv_data,
       delimiter=",",
+      fmt=csv_fmt,
       header=header,
       comments="",
     )
@@ -531,14 +577,14 @@ def run_play(task_id: str, cfg: PlayConfig):
     save_axes[0].legend(loc="upper right")
     save_axes[1].plot(xs, trolley_array[:, 1], color="tab:orange")
     save_axes[2].plot(xs, trolley_array[:, 2], color="tab:green")
-    save_axes[3].plot(xs, trolley_array[:, 3], color="tab:red")
+    save_axes[3].plot(xs, trolley_array[:, 3], color="tab:purple")
     for i in range(action_array.shape[1]):
       save_axes[4].plot(xs, action_array[:, i], label=f"a{i}")
     save_axes[0].set_title(f"Playback Curves ({task_id}, env 0)")
     save_axes[0].set_ylabel("Position")
     save_axes[1].set_ylabel("Velocity")
     save_axes[2].set_ylabel("Acceleration")
-    save_axes[3].set_ylabel("Angle (deg)")
+    save_axes[3].set_ylabel("Sway Angle (deg)")
     save_axes[4].set_ylabel("Action")
     save_axes[4].set_xlabel("Step")
     for axis in save_axes:
