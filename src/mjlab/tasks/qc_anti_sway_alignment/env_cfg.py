@@ -72,13 +72,18 @@ class TrolleyTargetCommand(CommandTerm):
     prev_pos = self.target_pos.clone()
     prev_vel = self.target_vel.clone()
 
-    if self.cfg.smoothing_tau <= 0.0:
+    dt = float(self._env.step_dt)
+    if self.cfg.traverse_speed > 0.0:
+      # Linear traversal at constant speed: farther targets take proportionally longer.
+      delta = self.desired_target_pos - self.target_pos
+      max_step = self.cfg.traverse_speed * dt
+      self.target_pos.add_(delta.clamp(-max_step, max_step))
+    elif self.cfg.smoothing_tau <= 0.0:
       self.target_pos.copy_(self.desired_target_pos)
     else:
-      alpha = min(float(self._env.step_dt) / self.cfg.smoothing_tau, 1.0)
+      alpha = min(dt / self.cfg.smoothing_tau, 1.0)
       self.target_pos += alpha * (self.desired_target_pos - self.target_pos)
 
-    dt = float(self._env.step_dt)
     if dt > 0.0:
       self.target_vel.copy_((self.target_pos - prev_pos) / dt)
       self.target_acc.copy_((self.target_vel - prev_vel) / dt)
@@ -94,6 +99,11 @@ class TrolleyTargetCommandCfg(CommandTermCfg):
   initial_target: float = 0.7
   mode: Literal["fixed", "random"] = "random"
   smoothing_tau: float = 0.0
+  traverse_speed: float = 0.0
+  """Constant traversal speed (m/s) for linear interpolation toward the target.
+  When > 0, target_pos moves at this speed each step; travel time is
+  proportional to distance (e.g. 0.5 m/s → 1.5 m in 3 s, 0.5 m in 1 s).
+  Set to 0.0 to fall back to smoothing_tau or instant-jump behaviour."""
 
   def build(self, env):
     return TrolleyTargetCommand(self, env)
@@ -298,14 +308,17 @@ def spreader_anti_sway_reward(
   angle_std: float = 0.2,
   settle_pos_std: float = 0.08,
   settle_vel_std: float = 0.12,
+  settle_angle_vel_std: float = 0.35,
+  crossing_angle_std: float = 0.06,
   global_outward_vel_std: float = 0.45,
   global_crossing_vel_std: float = 0.25,
 ) -> torch.Tensor:
-  """Reward small sway only after the trolley has effectively settled at command.
+  """Encourage one-sided damped sway during motion and zero sway at stop.
 
-  During transit, a weak global damping term discourages oscillation growth and
-  aggressive centerline crossings. Once the trolley is close to command and
-  nearly stopped, the reward additionally pushes sway angle toward zero.
+  Transit phase: allow non-zero sway but discourage outward growth and fast
+  centerline crossings (back-and-forth oscillation).
+  Near-stop phase: strongly encourage both sway angle and sway angular velocity
+  to converge to zero.
   """
   angle = spreader_sway_angle_obs(env, asset_cfg).squeeze(-1)
   angle_vel = spreader_sway_angle_vel_obs(env, asset_cfg).squeeze(-1)
@@ -328,17 +341,22 @@ def spreader_anti_sway_reward(
     -0.5 * (pos_error / settle_pos_std) ** 2
     -0.5 * (trolley_vel / settle_vel_std) ** 2
   )
+  transit_gate = 1.0 - settled_gate
 
   outward_vel = torch.relu(torch.sign(angle) * angle_vel)
   center_crossing_vel = torch.where(prev_angle * angle < 0.0, angle_vel.abs(), 0.0)
-  global_damping = torch.exp(
+  near_center_gate = torch.exp(-0.5 * (angle / crossing_angle_std) ** 2)
+  oscillation_damping = torch.exp(
     -0.5 * (outward_vel / global_outward_vel_std) ** 2
-    -0.5 * (center_crossing_vel / global_crossing_vel_std) ** 2
+    -0.5 * ((center_crossing_vel * near_center_gate) / global_crossing_vel_std) ** 2
   )
 
-  sway_term = torch.exp(-0.5 * (angle / angle_std) ** 2)
-  settled_term = (1.0 - settled_gate) + settled_gate * sway_term
-  return global_damping * settled_term
+  settle_term = torch.exp(
+    -0.5 * (angle / angle_std) ** 2
+    -0.5 * (angle_vel / settle_angle_vel_std) ** 2
+  )
+  reward = transit_gate * oscillation_damping + settled_gate * settle_term
+  return torch.clamp(reward, 0.0, 1.0)
 
 
 def trolley_acc_l2_reward(
@@ -497,7 +515,8 @@ def qc_anti_sway_alignment_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       target_range=(-0.08, 1.48),
       initial_target=0.7,
       mode="random",
-      smoothing_tau=0.5,
+      smoothing_tau=0.0,
+      traverse_speed=0.5,  # 恒速线性插值：距离1.5m需3s，距离0.5m需1s
       debug_vis=False,
     ),
   }
@@ -531,6 +550,8 @@ def qc_anti_sway_alignment_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
         "angle_std": 0.2,
         "settle_pos_std": 0.08,
         "settle_vel_std": 0.12,
+        "settle_angle_vel_std": 0.35,
+        "crossing_angle_std": 0.06,
         "global_outward_vel_std": 0.45,
         "global_crossing_vel_std": 0.25,
       },
@@ -545,7 +566,7 @@ def qc_anti_sway_alignment_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     ),
     "trolley_acc_l2_reward": RewardTermCfg(
       func=trolley_acc_l2_reward,
-      weight=-0.0008,
+      weight=-0.0001,
       params={
         "trolley_cfg": SceneEntityCfg("qc_anti_sway_alignment", joint_names=("trolley_joint",)),
         "std": 1.8,
@@ -553,13 +574,13 @@ def qc_anti_sway_alignment_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     ),
     "action_rate_l2_reward": RewardTermCfg(
       func=action_rate_l2_reward,
-      weight=-0.003,
-      params={"std": 0.12},
+      weight=-0.00003,
+      params={"std": 0.5},
     ),
     "action_acc_l2_reward": RewardTermCfg(
       func=action_acc_l2_reward,
-      weight=-0.00165,
-      params={"std": 0.6},
+      weight=-0.00005,
+      params={"std": 1.0},
     ),
     "action_l2_reward": RewardTermCfg(
       func=action_l2_reward,
