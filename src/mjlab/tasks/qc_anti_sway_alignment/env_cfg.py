@@ -50,6 +50,7 @@ class TrolleyTargetCommand(CommandTerm):
     self.desired_target_pos = self.target_pos.clone()
     self.target_vel = torch.zeros_like(self.target_pos)
     self.target_acc = torch.zeros_like(self.target_pos)
+    self.start_trolley_pos = torch.full_like(self.target_pos, cfg.initial_target)
     self.metrics["target_pos"] = self.target_pos
     self.metrics["target_vel"] = self.target_vel
     self.metrics["target_acc"] = self.target_acc
@@ -62,8 +63,13 @@ class TrolleyTargetCommand(CommandTerm):
     self.metrics["target_pos"] = self.target_pos
     self.metrics["target_vel"] = self.target_vel
     self.metrics["target_acc"] = self.target_acc
+    self.metrics["start_trolley_pos"] = self.start_trolley_pos
 
   def _resample_command(self, env_ids: torch.Tensor) -> None:
+    trolley: Entity = self._env.scene[self.cfg.entity_name]
+    trolley_joint_idx = trolley.joint_names.index("trolley_joint")
+    self.start_trolley_pos[env_ids] = trolley.data.joint_pos[env_ids, trolley_joint_idx]
+
     if self.cfg.mode == "fixed":
       self.desired_target_pos[env_ids] = self.cfg.initial_target
     else:
@@ -346,57 +352,86 @@ def spreader_anti_sway_reward(
   env: ManagerBasedRlEnv,
   asset_cfg: SceneEntityCfg,
   trolley_cfg: SceneEntityCfg,
-  angle_std: float = 0.2,
+  peak_sway_angle: float = 0.10,
+  profile_angle_std: float = 0.03,
+  phase_transition_std: float = 0.04,
+  settle_angle_std: float = 0.08,
   settle_pos_std: float = 0.08,
   settle_vel_std: float = 0.12,
-  settle_angle_vel_std: float = 0.35,
-  crossing_angle_std: float = 0.06,
-  global_outward_vel_std: float = 0.45,
-  global_crossing_vel_std: float = 0.25,
+  settle_angle_vel_std: float = 0.12,
 ) -> torch.Tensor:
-  """Encourage one-sided damped sway during motion and zero sway at stop.
+  """Track a triangular sway-angle profile over travel distance.
 
-  Transit phase: allow non-zero sway but discourage outward growth and fast
-  centerline crossings (back-and-forth oscillation).
-  Near-stop phase: strongly encourage both sway angle and sway angular velocity
-  to converge to zero.
+  Desired behaviour:
+  - First half of path: sway magnitude grows toward a bounded peak.
+  - Second half of path: sway magnitude shrinks toward zero.
+  - Near stop: angle and angle velocity converge to zero.
   """
   angle = spreader_sway_angle_obs(env, asset_cfg).squeeze(-1)
   angle_vel = spreader_sway_angle_vel_obs(env, asset_cfg).squeeze(-1)
-  prev_angle = previous_spreader_sway_angle_obs(env, asset_cfg).squeeze(-1)
+  angle_mag = torch.abs(angle)
   trolley: Entity = env.scene[trolley_cfg.name]
   trolley_pos = trolley.data.joint_pos[:, trolley_cfg.joint_ids].squeeze(-1)
   trolley_vel = trolley.data.joint_vel[:, trolley_cfg.joint_ids].squeeze(-1)
 
   if env.command_manager is not None and "trolley_target" in env.command_manager.active_terms:
     target_cmd = env.command_manager.get_command("trolley_target")
-    if target_cmd is None:
-      target_cmd = torch.full_like(trolley_pos, 0.7)
-    else:
-      target_cmd = target_cmd.squeeze(-1) if target_cmd.ndim > 1 else target_cmd
-  else:
-    target_cmd = torch.full_like(trolley_pos, 0.7)
+    target_term = env.command_manager.get_term("trolley_target")
 
-  pos_error = trolley_pos - target_cmd
+    if target_cmd is None:
+      current_cmd = torch.full_like(trolley_pos, 0.7)
+    else:
+      current_cmd = target_cmd.squeeze(-1) if target_cmd.ndim > 1 else target_cmd
+
+    desired_target = getattr(target_term, "desired_target_pos", current_cmd)
+    start_trolley_pos = getattr(target_term, "start_trolley_pos", trolley_pos)
+  else:
+    current_cmd = torch.full_like(trolley_pos, 0.7)
+    desired_target = current_cmd
+    start_trolley_pos = trolley_pos
+
+  desired_target = desired_target.squeeze(-1) if desired_target.ndim > 1 else desired_target
+  start_trolley_pos = (
+    start_trolley_pos.squeeze(-1)
+    if start_trolley_pos.ndim > 1
+    else start_trolley_pos
+  )
+
+  total_dist = torch.clamp(torch.abs(desired_target - start_trolley_pos), min=1e-4)
+  traveled_dist = torch.abs(trolley_pos - start_trolley_pos)
+  progress = torch.clamp(traveled_dist / total_dist, 0.0, 1.0)
+
+  rising_profile = progress / 0.5
+  falling_profile = (1.0 - progress) / 0.5
+  profile_raw = torch.where(progress <= 0.5, rising_profile, falling_profile)
+  profile_target = peak_sway_angle * torch.clamp(profile_raw, 0.0, 1.0)
+
+  profile_term = torch.exp(-0.5 * ((angle_mag - profile_target) / profile_angle_std) ** 2)
+
+  first_half_gate = torch.sigmoid((0.5 - progress) / phase_transition_std)
+  second_half_gate = 1.0 - first_half_gate
+
+  # Prefer non-decreasing sway in first half and non-increasing sway in second half.
+  grow_penalty = torch.relu(-angle_vel)
+  decay_penalty = torch.relu(angle_vel)
+  phase_rate_term = torch.exp(
+    -0.5 * ((first_half_gate * grow_penalty + second_half_gate * decay_penalty) / settle_angle_vel_std) ** 2
+  )
+
+  pos_error = trolley_pos - desired_target
   settled_gate = torch.exp(
     -0.5 * (pos_error / settle_pos_std) ** 2
     -0.5 * (trolley_vel / settle_vel_std) ** 2
   )
   transit_gate = 1.0 - settled_gate
 
-  outward_vel = torch.relu(torch.sign(angle) * angle_vel)
-  center_crossing_vel = torch.where(prev_angle * angle < 0.0, angle_vel.abs(), 0.0)
-  near_center_gate = torch.exp(-0.5 * (angle / crossing_angle_std) ** 2)
-  oscillation_damping = torch.exp(
-    -0.5 * (outward_vel / global_outward_vel_std) ** 2
-    -0.5 * ((center_crossing_vel * near_center_gate) / global_crossing_vel_std) ** 2
-  )
-
   settle_term = torch.exp(
-    -0.5 * (angle / angle_std) ** 2
+    -0.5 * (angle / settle_angle_std) ** 2
     -0.5 * (angle_vel / settle_angle_vel_std) ** 2
   )
-  reward = transit_gate * oscillation_damping + settled_gate * settle_term
+
+  transit_term = profile_term * phase_rate_term
+  reward = transit_gate * transit_term + settled_gate * settle_term
   return torch.clamp(reward, 0.0, 1.0)
 
 
@@ -612,69 +647,69 @@ def qc_anti_sway_alignment_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
 
   rewards = {
     "trolley_cmd_track_reward": RewardTermCfg(
-      func=trolley_cmd_track_reward_func,
-      weight=1.1,
-      params={"trolley_cfg": trolley_cfg, "std": 0.5},
+        func=trolley_cmd_track_reward_func,
+        weight=1.02,
+        params={"trolley_cfg": trolley_cfg, "std": 0.5},
     ),
     "spreader_anti_sway_reward": RewardTermCfg(
-      func=spreader_anti_sway_reward,
-      weight=0.28,
-      params={
-        "asset_cfg": SceneEntityCfg("qc_anti_sway_alignment"),
-        "trolley_cfg": SceneEntityCfg(
-          "qc_anti_sway_alignment", joint_names=("trolley_joint",)
-        ),
-        "angle_std": 0.07,
-        "settle_pos_std": 0.12,
-        "settle_vel_std": 0.15,
-        "settle_angle_vel_std": 0.10,
-        "crossing_angle_std": 0.04,
-        "global_outward_vel_std": 0.35,
-        "global_crossing_vel_std": 0.12,
-      },
+        func=spreader_anti_sway_reward,
+        weight=0.28,
+        params={
+            "asset_cfg": SceneEntityCfg("qc_anti_sway_alignment"),
+            "trolley_cfg": SceneEntityCfg(
+                "qc_anti_sway_alignment", joint_names=("trolley_joint",)
+            ),
+            "peak_sway_angle": 0.1,
+            "profile_angle_std": 0.03,
+            "phase_transition_std": 0.04,
+            "settle_angle_std": 0.07,
+            "settle_pos_std": 0.11,
+            "settle_vel_std": 0.14,
+            "settle_angle_vel_std": 0.1,
+        },
     ),
     "stopped_sway_penalty": RewardTermCfg(
-      func=stopped_sway_penalty,
-      weight=-0.08,
-      params={
-        "asset_cfg": SceneEntityCfg("qc_anti_sway_alignment"),
-        "trolley_cfg": SceneEntityCfg(
-          "qc_anti_sway_alignment", joint_names=("trolley_joint",)
-        ),
-        "vel_threshold": 0.02,
-        "angle_std": 0.12,
-      },
+        func=stopped_sway_penalty,
+        weight=-0.05,
+        params={
+            "asset_cfg": SceneEntityCfg("qc_anti_sway_alignment"),
+            "trolley_cfg": SceneEntityCfg(
+                "qc_anti_sway_alignment", joint_names=("trolley_joint",)
+            ),
+            "vel_threshold": 0.012,
+            "angle_std": 0.1,
+        },
     ),
     "trolley_vel_l2_reward": RewardTermCfg(
-      func=trolley_vel_l2_reward,
-      weight=-0.00012,
-      params={
-        "trolley_cfg": SceneEntityCfg("qc_anti_sway_alignment", joint_names=("trolley_joint",)),
-        "std": 0.5,
-      },
+        func=trolley_vel_l2_reward,
+        weight=-0.00012,
+        params={
+            "trolley_cfg": SceneEntityCfg("qc_anti_sway_alignment", joint_names=("trolley_joint",)),
+            "std": 0.5,
+        },
     ),
     "trolley_acc_l2_reward": RewardTermCfg(
-      func=trolley_acc_l2_reward,
-      weight=-0.00015,
-      params={
-        "trolley_cfg": SceneEntityCfg("qc_anti_sway_alignment", joint_names=("trolley_joint",)),
-        "std": 1.8,
-      },
+        func=trolley_acc_l2_reward,
+        weight=-0.00015,
+        params={
+            "trolley_cfg": SceneEntityCfg("qc_anti_sway_alignment", joint_names=("trolley_joint",)),
+            "std": 1.8,
+        },
     ),
     "action_rate_l2_reward": RewardTermCfg(
-      func=action_rate_l2_reward,
-      weight=-0.00006,
-      params={"std": 0.5},
+        func=action_rate_l2_reward,
+        weight=-0.00006,
+        params={"std": 0.5},
     ),
     "action_acc_l2_reward": RewardTermCfg(
-      func=action_acc_l2_reward,
-      weight=-0.00008,
-      params={"std": 1.0},
+        func=action_acc_l2_reward,
+        weight=-0.00008,
+        params={"std": 1.0},
     ),
     "action_l2_reward": RewardTermCfg(
-      func=action_l2_reward,
-      weight=-0.00003,
-      params={"std": 1.0},
+        func=action_l2_reward,
+        weight=-0.00003,
+        params={"std": 1.0},
     ),
   }
 
