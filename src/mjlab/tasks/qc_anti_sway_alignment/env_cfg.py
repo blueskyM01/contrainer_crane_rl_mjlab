@@ -16,11 +16,14 @@ from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.scene import SceneCfg
 from mjlab.sim import MujocoCfg, SimulationCfg
 from mjlab.viewer import ViewerConfig
-from mjlab.asset_zoo.robots.qc_anti_sway_alignment.qc_anti_sway_alignment_constants import get_qc_anti_sway_alignment_robot_cfg
+from mjlab.asset_zoo.robots.qc_anti_sway_alignment.qc_anti_sway_alignment_constants import (
+  get_qc_anti_sway_alignment_robot_cfg,
+)
 from mjlab.envs import mdp
 from mjlab.envs.mdp import (
   joint_pos_rel,
   joint_vel_rel,
+  nan_detection,
   reset_joints_by_offset,
   time_out,
 )
@@ -147,7 +150,8 @@ def trolley_acc_obs(
 ) -> torch.Tensor:
   """Current trolley joint acceleration."""
   asset: Entity = env.scene[asset_cfg.name]
-  return asset.data.joint_acc[:, asset_cfg.joint_ids]
+  joint_acc = asset.data.joint_acc[:, asset_cfg.joint_ids]
+  return torch.nan_to_num(joint_acc, nan=0.0, posinf=0.0, neginf=0.0)
 
 
 def previous_trolley_pos_obs(
@@ -169,7 +173,12 @@ def previous_trolley_vel_obs(
   """Approximate previous-step trolley velocity using velocity and acceleration."""
   asset: Entity = env.scene[asset_cfg.name]
   vel = asset.data.joint_vel[:, asset_cfg.joint_ids]
-  acc = asset.data.joint_acc[:, asset_cfg.joint_ids]
+  acc = torch.nan_to_num(
+    asset.data.joint_acc[:, asset_cfg.joint_ids],
+    nan=0.0,
+    posinf=0.0,
+    neginf=0.0,
+  )
   dt = env.step_dt
   return vel - acc * dt
 
@@ -180,7 +189,8 @@ def previous_trolley_acc_obs(
 ) -> torch.Tensor:
   """Approximate previous-step trolley acceleration (jerk not available; returns current acc)."""
   asset: Entity = env.scene[asset_cfg.name]
-  return asset.data.joint_acc[:, asset_cfg.joint_ids]
+  joint_acc = asset.data.joint_acc[:, asset_cfg.joint_ids]
+  return torch.nan_to_num(joint_acc, nan=0.0, posinf=0.0, neginf=0.0)
 
 
 def spreader_sway_angle_obs(
@@ -201,6 +211,23 @@ def spreader_sway_angle_obs(
   dy = (spreader_site_pos[:, 1] - trolley_site_pos[:, 1]).unsqueeze(-1)
   dz = (trolley_site_pos[:, 2] - spreader_site_pos[:, 2]).unsqueeze(-1)
   return torch.atan2(dy, dz)
+
+
+def rope_length_obs(
+  env: ManagerBasedRlEnv,
+  asset_cfg: SceneEntityCfg,
+  trolley_site_name: str = "trolley_center",
+  spreader_site_name: str = "spreader_center",
+) -> torch.Tensor:
+  """Euclidean distance between trolley and spreader center sites in world frame."""
+  asset: Entity = env.scene[asset_cfg.name]
+
+  trolley_site_idx = asset.site_names.index(trolley_site_name)
+  spreader_site_idx = asset.site_names.index(spreader_site_name)
+
+  trolley_site_pos = asset.data.site_pos_w[:, trolley_site_idx]
+  spreader_site_pos = asset.data.site_pos_w[:, spreader_site_idx]
+  return torch.norm(spreader_site_pos - trolley_site_pos, dim=-1, keepdim=True)
 
 
 def previous_spreader_sway_angle_obs(
@@ -301,6 +328,20 @@ def previous_action_obs(
   return action
 
 
+def joint_limit_violation_termination(
+  env: ManagerBasedRlEnv,
+  asset_cfg: SceneEntityCfg,
+  tolerance: float = 1e-3,
+) -> torch.Tensor:
+  """Terminate envs whose selected joints leave their soft limits."""
+  asset: Entity = env.scene[asset_cfg.name]
+  joint_pos = asset.data.joint_pos[:, asset_cfg.joint_ids]
+  joint_limits = asset.data.soft_joint_pos_limits[:, asset_cfg.joint_ids]
+  below = joint_pos < (joint_limits[..., 0] - tolerance)
+  above = joint_pos > (joint_limits[..., 1] + tolerance)
+  return torch.any(below | above, dim=1)
+
+
 def spreader_anti_sway_reward(
   env: ManagerBasedRlEnv,
   asset_cfg: SceneEntityCfg,
@@ -357,6 +398,29 @@ def spreader_anti_sway_reward(
   )
   reward = transit_gate * oscillation_damping + settled_gate * settle_term
   return torch.clamp(reward, 0.0, 1.0)
+
+
+def stopped_sway_penalty(
+  env: ManagerBasedRlEnv,
+  asset_cfg: SceneEntityCfg,
+  trolley_cfg: SceneEntityCfg,
+  vel_threshold: float = 0.05,
+  angle_std: float = 0.05,
+) -> torch.Tensor:
+  """Penalize sway angle when the trolley is stopped.
+
+  Returns a value in [0, 1] that is gated by a soft velocity threshold and
+  proportional to how far the sway angle is from zero. Intended to be used
+  with a negative weight so it acts as a pure penalty, decoupled from
+  spreader_anti_sway_reward which handles the transit phase.
+  """
+  angle = spreader_sway_angle_obs(env, asset_cfg).squeeze(-1)
+  trolley: Entity = env.scene[trolley_cfg.name]
+  trolley_vel = trolley.data.joint_vel[:, trolley_cfg.joint_ids].squeeze(-1)
+
+  stopped_gate = torch.exp(-0.5 * (trolley_vel / vel_threshold) ** 2)
+  sway_penalty = 1.0 - torch.exp(-0.5 * (angle / angle_std) ** 2)
+  return stopped_gate * sway_penalty
 
 
 def trolley_acc_l2_reward(
@@ -489,6 +553,10 @@ def qc_anti_sway_alignment_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       func=previous_spreader_sway_angle_vel_obs,
       params={"asset_cfg": trolley_cfg},
     ),
+    "rope_length": ObservationTermCfg(
+      func=rope_length_obs,
+      params={"asset_cfg": trolley_cfg},
+    ),
     "command": ObservationTermCfg(
       func=generated_commands_obs,
       params={"command_name": "trolley_target"},
@@ -503,8 +571,8 @@ def qc_anti_sway_alignment_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   actions: dict[str, ActionTermCfg] = {
     "position": JointPositionActionCfg(
       entity_name="qc_anti_sway_alignment",
-      actuator_names=("trolley_joint",),
-      scale=1.0,  
+      actuator_names=("trolley_joint", "hoist_joint"),
+      scale={"trolley_joint": 1.0, "hoist_joint": 0.0},
     ),
   }
 
@@ -531,34 +599,55 @@ def qc_anti_sway_alignment_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
         "asset_cfg": SceneEntityCfg("qc_anti_sway_alignment", joint_names=("trolley_joint",)),
       },
     ),
+    "reset_hoist": EventTermCfg(
+      func=reset_joints_by_offset,
+      mode="reset",
+      params={
+        "position_range": (0.0, 0.0),
+        "velocity_range": (0.0, 0.0),
+        "asset_cfg": SceneEntityCfg("qc_anti_sway_alignment", joint_names=("hoist_joint",)),
+      },
+    ),
   }
 
   rewards = {
     "trolley_cmd_track_reward": RewardTermCfg(
       func=trolley_cmd_track_reward_func,
-      weight=1.0,
+      weight=1.1,
       params={"trolley_cfg": trolley_cfg, "std": 0.5},
     ),
     "spreader_anti_sway_reward": RewardTermCfg(
       func=spreader_anti_sway_reward,
-      weight=0.25,
+      weight=0.28,
       params={
         "asset_cfg": SceneEntityCfg("qc_anti_sway_alignment"),
         "trolley_cfg": SceneEntityCfg(
           "qc_anti_sway_alignment", joint_names=("trolley_joint",)
         ),
-        "angle_std": 0.2,
-        "settle_pos_std": 0.08,
-        "settle_vel_std": 0.12,
-        "settle_angle_vel_std": 0.35,
-        "crossing_angle_std": 0.06,
-        "global_outward_vel_std": 0.45,
-        "global_crossing_vel_std": 0.25,
+        "angle_std": 0.07,
+        "settle_pos_std": 0.12,
+        "settle_vel_std": 0.15,
+        "settle_angle_vel_std": 0.10,
+        "crossing_angle_std": 0.04,
+        "global_outward_vel_std": 0.35,
+        "global_crossing_vel_std": 0.12,
+      },
+    ),
+    "stopped_sway_penalty": RewardTermCfg(
+      func=stopped_sway_penalty,
+      weight=-0.08,
+      params={
+        "asset_cfg": SceneEntityCfg("qc_anti_sway_alignment"),
+        "trolley_cfg": SceneEntityCfg(
+          "qc_anti_sway_alignment", joint_names=("trolley_joint",)
+        ),
+        "vel_threshold": 0.02,
+        "angle_std": 0.12,
       },
     ),
     "trolley_vel_l2_reward": RewardTermCfg(
       func=trolley_vel_l2_reward,
-      weight=-0.0001,
+      weight=-0.00012,
       params={
         "trolley_cfg": SceneEntityCfg("qc_anti_sway_alignment", joint_names=("trolley_joint",)),
         "std": 0.5,
@@ -566,7 +655,7 @@ def qc_anti_sway_alignment_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     ),
     "trolley_acc_l2_reward": RewardTermCfg(
       func=trolley_acc_l2_reward,
-      weight=-0.0001,
+      weight=-0.00015,
       params={
         "trolley_cfg": SceneEntityCfg("qc_anti_sway_alignment", joint_names=("trolley_joint",)),
         "std": 1.8,
@@ -574,23 +663,35 @@ def qc_anti_sway_alignment_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     ),
     "action_rate_l2_reward": RewardTermCfg(
       func=action_rate_l2_reward,
-      weight=-0.00003,
+      weight=-0.00006,
       params={"std": 0.5},
     ),
     "action_acc_l2_reward": RewardTermCfg(
       func=action_acc_l2_reward,
-      weight=-0.00005,
+      weight=-0.00008,
       params={"std": 1.0},
     ),
     "action_l2_reward": RewardTermCfg(
       func=action_l2_reward,
-      weight=-0.00002,
+      weight=-0.00003,
       params={"std": 1.0},
     ),
   }
 
   terminations = {
     "time_out": TerminationTermCfg(func=time_out, time_out=True),
+    "nan_detection": TerminationTermCfg(func=nan_detection, time_out=False),
+    "joint_limit_violation": TerminationTermCfg(
+      func=joint_limit_violation_termination,
+      time_out=False,
+      params={
+        "asset_cfg": SceneEntityCfg(
+          "qc_anti_sway_alignment",
+          joint_names=("trolley_joint",),
+        ),
+        "tolerance": 1e-3,
+      },
+    ),
   }
   
   if play:
