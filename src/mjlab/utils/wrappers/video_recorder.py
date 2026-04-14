@@ -164,6 +164,10 @@ class VideoRecorder(ManagerBasedRlEnv):
     if not self.disable_logger:
       print(f"[INFO] Recording video to {self.current_video_path}")
 
+    # Capture the reset/current frame immediately so the video starts from the
+    # exact initialized state instead of the first post-action state.
+    self._record_frame()
+
   def _record_frame(self) -> None:
     """Record a frame from the environment.
 

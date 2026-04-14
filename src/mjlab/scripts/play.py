@@ -431,9 +431,29 @@ def run_play(task_id: str, cfg: PlayConfig):
             float((sp_s[1] - t_s[1]).item()),
             float((t_s[2] - sp_s[2]).item()),
           ))
+          trolley_y_world = float(t_s[1].item())
+          spreader_x = float(sp_s[0].item())
+          spreader_y_world = float(sp_s[1].item())
+          spreader_y = spreader_y_world - trolley_y_world
+          spreader_z = float(sp_s[2].item())
         else:
           sway_angle = 0.0
-        trolley_history.append((trolley_pos, trolley_vel, trolley_acc, sway_angle))
+          spreader_x = spreader_y = spreader_z = float('nan')
+          trolley_y_world = float('nan')
+          spreader_y_world = float('nan')
+        trolley_history.append(
+          (
+            trolley_pos,
+            trolley_vel,
+            trolley_acc,
+            sway_angle,
+            spreader_x,
+            spreader_y,
+            spreader_z,
+            trolley_y_world,
+            spreader_y_world,
+          )
+        )
 
       self.call_count += 1
       if (
@@ -548,6 +568,8 @@ def run_play(task_id: str, cfg: PlayConfig):
       )
       header = (
         f"step,trolley_pos,trolley_vel,trolley_acc,spreader_sway_angle_deg,"
+        f"spreader_center_x,spreader_center_y,spreader_center_z,"
+        f"trolley_center_y_world,spreader_center_y_world,"
         f"{action_header},target_pos"
       )
     else:
@@ -556,6 +578,8 @@ def run_play(task_id: str, cfg: PlayConfig):
       )
       header = (
         f"step,trolley_pos,trolley_vel,trolley_acc,spreader_sway_angle_deg,"
+        f"spreader_center_x,spreader_center_y,spreader_center_z,"
+        f"trolley_center_y_world,spreader_center_y_world,"
         f"{action_header}"
       )
     # Save with fixed-width 4-decimal formatting for easier visual alignment.
