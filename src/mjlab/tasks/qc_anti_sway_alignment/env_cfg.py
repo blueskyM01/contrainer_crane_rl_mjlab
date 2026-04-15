@@ -29,6 +29,8 @@ from mjlab.envs.mdp import (
 from mjlab.utils.lab_api.math import sample_uniform
 
 import numpy as np
+from scipy.optimize import least_squares
+from mjlab.utils.lab_api.math import quat_from_euler_xyz
 
 
 def reset_trolley_and_spreader_with_angle(
@@ -37,6 +39,8 @@ def reset_trolley_and_spreader_with_angle(
   position_range: tuple[float, float],
   velocity_range: tuple[float, float],
   trolley_cfg: SceneEntityCfg,
+  hoist_position_range: tuple[float, float] = (0.0, 0.0),
+  hoist_velocity_range: tuple[float, float] = (0.0, 0.0),
   spreader_site_name: str = "spreader_center",
   trolley_site_name: str = "trolley_center",
 ) -> None:
@@ -46,11 +50,142 @@ def reset_trolley_and_spreader_with_angle(
   When the trolley joint is reset away from zero, the spreader must be shifted by
   the same amount in world y so that the spreader center remains directly below
   the trolley center and the initial sway angle is zero.
+
+  The hoist is modeled as a slide joint on the pulley block, while the spreader is
+  a separate freejoint body connected through a 2:1 reeving. Therefore, changing
+  hoist_joint by +0.1 m must raise the spreader by +0.2 m during reset.
   """
   if env_ids is None:
     env_ids = torch.arange(env.num_envs, device=env.device, dtype=torch.int)
 
   asset = env.scene[trolley_cfg.name]
+  model = env.sim.mj_model
+
+  site_id_by_name = {
+    name: int(asset.indexing.site_ids[asset.site_names.index(name)].item())
+    for name in (
+      "anchor_drum_1",
+      "anchor_pm_1_1",
+      "anchor_pm_1_0",
+      "anchor_ps_1",
+      "anchor_spreader_1",
+      "anchor_drum_3",
+      "anchor_pm_3_1",
+      "anchor_pm_3_0",
+      "anchor_ps_3",
+      "anchor_spreader_3",
+      spreader_site_name,
+    )
+  }
+  body_id_by_name = {
+    name: int(asset.indexing.body_ids[asset.body_names.index(name)].item())
+    for name in ("spreader",)
+  }
+
+  def site_world_from_model_default(site_name: str) -> np.ndarray:
+    site_id = site_id_by_name[site_name]
+    pos = np.array(model.site_pos[site_id], dtype=np.float64).copy()
+    body_id = int(model.site_bodyid[site_id])
+    while body_id != 0:
+      pos += np.array(model.body_pos[body_id], dtype=np.float64)
+      body_id = int(model.body_parentid[body_id])
+    return pos
+
+  def site_pos_in_body_frame(site_name: str, body_name: str) -> np.ndarray:
+    site_id = site_id_by_name[site_name]
+    root_body_id = body_id_by_name[body_name]
+    pos = np.array(model.site_pos[site_id], dtype=np.float64).copy()
+    body_id = int(model.site_bodyid[site_id])
+    while body_id != root_body_id:
+      pos += np.array(model.body_pos[body_id], dtype=np.float64)
+      body_id = int(model.body_parentid[body_id])
+    return pos
+
+  def path_length(points: list[np.ndarray]) -> float:
+    return sum(float(np.linalg.norm(points[i + 1] - points[i])) for i in range(len(points) - 1))
+
+  front_path_names = (
+    "anchor_drum_1",
+    "anchor_pm_1_1",
+    "anchor_pm_1_0",
+    "anchor_ps_1",
+    "anchor_spreader_1",
+  )
+  rear_path_names = (
+    "anchor_drum_3",
+    "anchor_pm_3_1",
+    "anchor_pm_3_0",
+    "anchor_ps_3",
+    "anchor_spreader_3",
+  )
+
+  default_front_path = [site_world_from_model_default(name) for name in front_path_names]
+  default_rear_path = [site_world_from_model_default(name) for name in rear_path_names]
+  baseline_total_len_12 = path_length(default_front_path)
+  baseline_total_len_34 = path_length(default_rear_path)
+  default_spreader_root_pos = np.array(
+    model.body_pos[body_id_by_name["spreader"]], dtype=np.float64
+  )
+  spreader_anchor_1_local = site_pos_in_body_frame("anchor_spreader_1", "spreader")
+  spreader_anchor_3_local = site_pos_in_body_frame("anchor_spreader_3", "spreader")
+
+  def solve_spreader_pose_from_hoist(
+    hoist_pos: float,
+    root_x: float,
+    ps_1_x: float,
+    ps_1_z: float,
+    ps_3_x: float,
+    ps_3_z: float,
+    current_fixed_len_12: float,
+    current_fixed_len_34: float,
+  ) -> tuple[float, float]:
+    """Solve spreader root z and pitch from the reeving geometry in the MJCF.
+
+    The front (tendon1/2) and rear (tendon3/4) rope paths have different pulley
+    heights, so a pure z translation cannot satisfy both rope lengths once the
+    hoist moves. We solve for a z + pitch pose that matches the tendon lengths
+    implied by the current compiled model rather than hardcoded XML constants.
+    """
+
+    def anchor_world(local_x: float, local_z: float, root_z: float, pitch: float) -> tuple[float, float]:
+      x_w = root_x + math.cos(pitch) * local_x + math.sin(pitch) * local_z
+      z_w = root_z - math.sin(pitch) * local_x + math.cos(pitch) * local_z
+      return x_w, z_w
+
+    def residual(vars: np.ndarray) -> np.ndarray:
+      root_z, pitch = vars.tolist()
+      anchor_12_x, anchor_12_z = anchor_world(
+        float(spreader_anchor_1_local[0]),
+        float(spreader_anchor_1_local[2]),
+        root_z,
+        pitch,
+      )
+      anchor_34_x, anchor_34_z = anchor_world(
+        float(spreader_anchor_3_local[0]),
+        float(spreader_anchor_3_local[2]),
+        root_z,
+        pitch,
+      )
+
+      target_12 = baseline_total_len_12 - current_fixed_len_12
+      target_34 = baseline_total_len_34 - current_fixed_len_34
+
+      last_seg_12 = math.hypot(ps_1_x - anchor_12_x, ps_1_z - anchor_12_z)
+      last_seg_34 = math.hypot(ps_3_x - anchor_34_x, ps_3_z - anchor_34_z)
+
+      return np.array([last_seg_12 - target_12, last_seg_34 - target_34], dtype=np.float64)
+
+    solution = least_squares(
+      residual,
+      x0=np.array([default_spreader_root_pos[2] + 2.0 * hoist_pos, 0.0], dtype=np.float64),
+      bounds=(
+        np.array([default_spreader_root_pos[2] - 2.0, -0.8], dtype=np.float64),
+        np.array([default_spreader_root_pos[2] + 2.5, 0.8], dtype=np.float64),
+      ),
+    )
+    root_z, pitch = solution.x.tolist()
+    return root_z, pitch
+
   trolley_joint_idx = asset.joint_names.index("trolley_joint")
   hoist_joint_idx = asset.joint_names.index("hoist_joint")
   joint_ids = torch.tensor(
@@ -65,9 +200,12 @@ def reset_trolley_and_spreader_with_angle(
   joint_vel = default_joint_vel
   joint_pos[:, :1] += sample_uniform(*position_range, (len(env_ids), 1), env.device)
   joint_vel[:, :1] += sample_uniform(*velocity_range, (len(env_ids), 1), env.device)
-
-  joint_pos[:, 1] = 0.0
-  joint_vel[:, 1] = 0.0
+  joint_pos[:, 1:2] += sample_uniform(
+    *hoist_position_range, (len(env_ids), 1), env.device
+  )
+  joint_vel[:, 1:2] += sample_uniform(
+    *hoist_velocity_range, (len(env_ids), 1), env.device
+  )
   joint_pos = joint_pos.clamp_(joint_limits[..., 0], joint_limits[..., 1])
 
   asset.write_joint_state_to_sim(
@@ -76,6 +214,17 @@ def reset_trolley_and_spreader_with_angle(
     env_ids=env_ids,
     joint_ids=joint_ids,
   )
+  asset.data.joint_pos_target[
+    env_ids.unsqueeze(1), joint_ids.unsqueeze(0)
+  ] = joint_pos
+
+  if env.action_manager is not None and "position" in env.action_manager.active_terms:
+    action_term = env.action_manager.get_term("position")
+    target_names = list(getattr(action_term, "_target_names", ()))
+    if "hoist_joint" in target_names and isinstance(getattr(action_term, "_offset", None), torch.Tensor):
+      hoist_action_idx = target_names.index("hoist_joint")
+      action_term._offset[env_ids, hoist_action_idx] = joint_pos[:, 1]
+      action_term._processed_actions[env_ids, hoist_action_idx] = joint_pos[:, 1]
 
   if hasattr(env, "sim") and hasattr(env.sim, "forward"):
     env.sim.forward()
@@ -84,14 +233,67 @@ def reset_trolley_and_spreader_with_angle(
   spreader_site_idx = asset.site_names.index(spreader_site_name)
   trolley_site_pos = asset.data.site_pos_w[env_ids, trolley_site_idx]
   spreader_site_pos = asset.data.site_pos_w[env_ids, spreader_site_idx]
+  anchor_drum_1_idx = asset.site_names.index("anchor_drum_1")
+  anchor_pm_1_1_idx = asset.site_names.index("anchor_pm_1_1")
+  anchor_pm_1_0_idx = asset.site_names.index("anchor_pm_1_0")
+  anchor_ps_1_idx = asset.site_names.index("anchor_ps_1")
+  anchor_drum_3_idx = asset.site_names.index("anchor_drum_3")
+  anchor_pm_3_1_idx = asset.site_names.index("anchor_pm_3_1")
+  anchor_pm_3_0_idx = asset.site_names.index("anchor_pm_3_0")
+  anchor_ps_3_idx = asset.site_names.index("anchor_ps_3")
 
   spreader_q_adr = asset.data.indexing.free_joint_q_adr
   spreader_v_adr = asset.data.indexing.free_joint_v_adr
   spreader_pose = asset.data.data.qpos[env_ids][:, spreader_q_adr].clone()
+  spreader_pose[:, 0] = float(default_spreader_root_pos[0])
 
   # Shift only world y by the trolley-spreader mismatch so the spreader center
   # is vertically below the trolley center at reset.
   spreader_pose[:, 1] += trolley_site_pos[:, 1] - spreader_site_pos[:, 1]
+
+  spreader_quat = spreader_pose[:, 3:7].clone()
+  for env_row in range(len(env_ids)):
+    env_id = env_ids[env_row]
+    drum_1 = asset.data.site_pos_w[env_id, anchor_drum_1_idx]
+    pm_1_1 = asset.data.site_pos_w[env_id, anchor_pm_1_1_idx]
+    pm_1_0 = asset.data.site_pos_w[env_id, anchor_pm_1_0_idx]
+    ps_1 = asset.data.site_pos_w[env_id, anchor_ps_1_idx]
+    drum_3 = asset.data.site_pos_w[env_id, anchor_drum_3_idx]
+    pm_3_1 = asset.data.site_pos_w[env_id, anchor_pm_3_1_idx]
+    pm_3_0 = asset.data.site_pos_w[env_id, anchor_pm_3_0_idx]
+    ps_3 = asset.data.site_pos_w[env_id, anchor_ps_3_idx]
+    ps_1_x = float(ps_1[0].item())
+    ps_1_z = float(ps_1[2].item())
+    ps_3_x = float(ps_3[0].item())
+    ps_3_z = float(ps_3[2].item())
+    current_fixed_len_12 = (
+      float(torch.linalg.norm(drum_1 - pm_1_1).item())
+      + float(torch.linalg.norm(pm_1_1 - pm_1_0).item())
+      + float(torch.linalg.norm(pm_1_0 - ps_1).item())
+    )
+    current_fixed_len_34 = (
+      float(torch.linalg.norm(drum_3 - pm_3_1).item())
+      + float(torch.linalg.norm(pm_3_1 - pm_3_0).item())
+      + float(torch.linalg.norm(pm_3_0 - ps_3).item())
+    )
+    root_z, pitch = solve_spreader_pose_from_hoist(
+      hoist_pos=float(joint_pos[env_row, 1].item()),
+      root_x=float(spreader_pose[env_row, 0].item()),
+      ps_1_x=ps_1_x,
+      ps_1_z=ps_1_z,
+      ps_3_x=ps_3_x,
+      ps_3_z=ps_3_z,
+      current_fixed_len_12=current_fixed_len_12,
+      current_fixed_len_34=current_fixed_len_34,
+    )
+    spreader_pose[env_row, 2] = root_z
+    spreader_quat[env_row] = quat_from_euler_xyz(
+      torch.tensor([0.0], device=env.device),
+      torch.tensor([pitch], device=env.device),
+      torch.tensor([0.0], device=env.device),
+    ).squeeze(0)
+
+  spreader_pose[:, 3:7] = spreader_quat
 
   asset.data.data.qpos[env_ids.unsqueeze(1), spreader_q_adr.unsqueeze(0)] = spreader_pose
   asset.data.data.qvel[
@@ -678,6 +880,8 @@ def qc_anti_sway_alignment_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       params={
         "position_range": (-0.08, 1.48),
         "velocity_range": (-0.4, 0.4),
+        "hoist_position_range": (0.0, 0.8),
+        "hoist_velocity_range": (-0.2, 0.2),
         "trolley_cfg": SceneEntityCfg("qc_anti_sway_alignment", joint_names=("trolley_joint",)),
       },
     ),
@@ -774,8 +978,10 @@ def qc_anti_sway_alignment_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       func=reset_trolley_and_spreader_with_angle,
       mode="reset",
       params={
-        "position_range": (0.3, 0.3),
+        "position_range": (0.0, 0.0),
         "velocity_range": (0.0, 0.0),
+        "hoist_position_range": (0.4, 0.4),
+        "hoist_velocity_range": (0.0, 0.0),
         "trolley_cfg": SceneEntityCfg("qc_anti_sway_alignment", joint_names=("trolley_joint",)),
       },
     )

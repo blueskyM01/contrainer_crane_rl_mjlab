@@ -227,7 +227,7 @@
     </body>
 
 
-    <body name="spreader" pos="0.61 -0.7 0.915">
+    <body name="spreader" pos="0.61 -0.7 0.125">
       <freejoint name="spreader_freejoint"/>
       <body name="part_00_spreader - spreader_plane-1" pos="0 0 0" euler="0 0 0">
         <geom name="geom_00_spreader - spreader_plane-1" type="mesh" mesh="spreader - spreader_plane-1_mesh" pos="0 0 0" mass="0.8539416257786026" rgba="0.5 0.5 0 1"/>
